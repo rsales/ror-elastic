@@ -1,57 +1,42 @@
 <script setup lang="ts">
-defineProps<{
-  page: number
-  totalPages: number
-}>()
-
-const emit = defineEmits<{
-  previous: []
-  next: []
-}>()
+defineProps<{ page: number; totalPages: number }>()
+const emit = defineEmits<{ previous: []; next: [] }>()
 </script>
 
 <template>
-  <div
-    class="
-      flex
-      items-center
-      justify-center
-      gap-4
-      mt-10
-    "
-  >
-    <button
-      class="
-        px-4
-        py-2
-        rounded-xl
-        bg-zinc-800
-        hover:bg-zinc-700
-        disabled:opacity-40
-      "
-      :disabled="page <= 1"
-      @click="emit('previous')"
-    >
-      Previous
-    </button>
-
-    <div class="text-zinc-400">
-      Page {{ page }} / {{ totalPages }}
-    </div>
-
-    <button
-      class="
-        px-4
-        py-2
-        rounded-xl
-        bg-zinc-800
-        hover:bg-zinc-700
-        disabled:opacity-40
-      "
-      :disabled="page >= totalPages"
-      @click="emit('next')"
-    >
-      Next
-    </button>
-  </div>
+  <nav class="pager">
+    <button :disabled="page <= 1" @click="emit('previous')">←</button>
+    <span>Página {{ page }} de {{ totalPages }}</span>
+    <button :disabled="page >= totalPages" @click="emit('next')">→</button>
+  </nav>
 </template>
+
+<style scoped>
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 32px;
+  color: var(--muted);
+}
+
+.pager button {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.pager button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pager button:not(:disabled):hover {
+  border-color: var(--accent);
+}
+</style>
