@@ -8,20 +8,16 @@ class Movie < ApplicationRecord
     analysis: {
       filter: {
         autocomplete_filter: {
-          type: 'edge_ngram',
-          min_gram: 1,
-          max_gram: 20
+          type:      'edge_ngram',
+          min_gram:  1,
+          max_gram:  20
         }
       },
 
       analyzer: {
         autocomplete: {
           tokenizer: 'standard',
-          filter: %w[
-            lowercase
-            asciifolding
-            autocomplete_filter
-          ]
+          filter:    %w[lowercase asciifolding autocomplete_filter]
         }
       }
     }
@@ -29,8 +25,9 @@ class Movie < ApplicationRecord
 
     mappings dynamic: false do
       indexes :title,
-        type: 'text',
-        analyzer: 'autocomplete'
+        type:            'text',
+        analyzer:        'autocomplete',  # edge_ngram no índice (para autocomplete/suggest)
+        search_analyzer: 'standard'       # standard na busca (evita matches errados)
 
       indexes :overview,
         type: 'text'
@@ -54,15 +51,15 @@ class Movie < ApplicationRecord
 
   def as_indexed_json(_options = {})
     {
-      title: title,
-      overview: overview,
-      genres: genres,
-      popularity: popularity,
-      vote_average: vote_average,
-      release_date: release_date,
+      title:             title,
+      overview:          overview,
+      genres:            genres,
+      popularity:        popularity,
+      vote_average:      vote_average,
+      release_date:      release_date,
       original_language: original_language,
-      poster_path: poster_path,
-      backdrop_path: backdrop_path
+      poster_path:       poster_path,
+      backdrop_path:     backdrop_path
     }
   end
 end
