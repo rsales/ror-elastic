@@ -9,7 +9,7 @@ module Tmdb
     end
 
     def popular_movies(page: 1)
-      self.class.get(
+      response = self.class.get(
         '/movie/popular',
         query: {
           api_key: @api_key,
@@ -17,6 +17,8 @@ module Tmdb
           page: page
         }
       )
+
+      response.parsed_response
     end
   end
 end
