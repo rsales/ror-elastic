@@ -7,6 +7,12 @@ class Api::SearchController < ApplicationController
 
     results = search_movies(from: from, size: size)
     render json: serialize(results)
+
+  rescue Elastic::Transport::Transport::Errors::BadRequest => e
+    # query_string lança 400 quando a query tem sintaxe inválida
+    # (ex: aspas não fechadas enquanto o usuário ainda está digitando)
+    Rails.logger.warn("[SearchController] Malformed query '#{params[:q]}': #{e.message.truncate(120)}")
+    render json: { total: 0, took_ms: 0, facets: { genres: [] }, items: [] }
   end
 
   private
@@ -22,10 +28,10 @@ class Api::SearchController < ApplicationController
       ).call
     else
       Movie.search(
-        query:       default_query,
-        aggs:        facet_aggs,
-        from:        from,
-        size:        size
+        query: default_query,
+        aggs:  facet_aggs,
+        from:  from,
+        size:  size
       )
     end
   end
@@ -91,8 +97,8 @@ class Api::SearchController < ApplicationController
     genres  = genres_param
     rating  = min_rating_param
 
-    filters << { terms: { genres: genres } }           if genres.any?
-    filters << { range: { vote_average: { gte: rating } } } if rating
+    filters << { terms: { genres: genres } }                    if genres.any?
+    filters << { range: { vote_average: { gte: rating } } }     if rating
     filters
   end
 
