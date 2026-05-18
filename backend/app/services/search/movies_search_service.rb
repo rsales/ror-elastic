@@ -27,33 +27,36 @@ module Search
     end
 
     def build_bool_query
-      must_clauses   = [simple_query_string]
       filter_clauses = build_filters
 
       if filter_clauses.any?
-        { bool: { must: must_clauses, filter: filter_clauses } }
+        { bool: { must: [full_text_query], filter: filter_clauses } }
       else
-        { bool: { must: must_clauses } }
+        full_text_query
       end
     end
 
-    def simple_query_string
+    def full_text_query
+      # query_string suporta todos os operadores de forma confiável:
+      #   "frase exata"          → phrase query
+      #   -excluído              → must_not (funciona mesmo com frases)
+      #   +obrigatório           → must
+      #   termo*                 → wildcard
+      #   termo~2                → fuzzy
+      #   (a OR b)               → agrupamento
+      #
+      # Diferente do simple_query_string, o query_string lida corretamente
+      # com a combinação "phrase" -term sem explodir o minimum_should_match.
+      # lenient: true garante que queries malformadas não retornem erro 400.
+      # analyze_wildcard: true faz term* funcionar com o analyzer correto.
       {
-        simple_query_string: {
-          query:  query,
-          fields: ['title^10', 'overview^2'],
-
-          # OR: sem aspas, qualquer palavra basta (rankeado por relevância).
-          # Isso torna os operadores significativos:
-          #   "frase exata"  → só o que tem a frase na ordem
-          #   +obrigatório   → termo deve estar presente
-          #   -excluído      → termo não pode aparecer
-          #   termo*         → wildcard/prefixo
-          # Com 'and', o "+" vira redundante e "frase" vs sem-aspas fica igual.
-          default_operator: 'or',
-
-          # Força o analyzer padrão na busca (evita matches errados do edge_ngram)
-          analyzer: 'standard'
+        query_string: {
+          query:             query,
+          fields:            ['title^10', 'overview^2'],
+          default_operator:  'OR',
+          analyzer:          'standard',
+          lenient:           true,
+          analyze_wildcard:  true
         }
       }
     end
