@@ -241,7 +241,7 @@ curl -sG \
 - Ordinary terms use `simple_query_string` with default operator `OR` for broad recall.
 - A query containing an exclusion such as `"Spider-Man" -Homecoming` switches the default operator to `AND`, keeping the positive clause mandatory while excluding matches for the negative term.
 - When Elasticsearch raises a `BadRequest` while executing a search query, the API returns HTTP 200 with an empty `items` payload to support incomplete queries while typing. Invalid HTTP parameters are still HTTP 400. An incomplete expression does not necessarily trigger an Elasticsearch error; live contract cases check the actual result.
-- Supported syntax includes quoted phrases, required terms (`+`), exclusions (`-`), wildcards, fuzzy terms and grouping supported by `simple_query_string`.
+- Supported syntax includes quoted phrases, AND composition with `+` (for example `space +adventure`), exclusions (`-`), wildcards, fuzzy terms and grouping supported by `simple_query_string`. In this engine, a leading unary `+space` is not treated as a required-term modifier.
 - A separate phrase clause boosts ranking; it is not independently mandatory.
 - Genre and rating filters do not directly contribute to relevance scoring.
 - Text queries sort by score, then popularity and TMDB ID. Browse mode sorts by popularity and TMDB ID.
