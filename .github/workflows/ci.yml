@@ -103,7 +103,7 @@ jobs:
           working-directory: backend
           bundler-cache: true
       - name: Install Node API dependencies
-        run: npm ci --prefix /tmp/poc-elastic/backend
+        run: npm ci --prefix peer/poc-elastic/backend
       - name: Prepare Rails database
         working-directory: backend
         env:
@@ -114,7 +114,7 @@ jobs:
         run: |
           cd backend
           nohup env RAILS_ENV=development ELASTICSEARCH_URL=http://localhost:9200 ELASTICSEARCH_INDEX=movies-contract-test bundle exec rails server -p 3100 > /tmp/rails-api.log 2>&1 &
-          cd /tmp/poc-elastic/backend
+          cd "$GITHUB_WORKSPACE/peer/poc-elastic/backend"
           nohup env PORT=3000 ES_URL=http://localhost:9200 INDEX=movies-contract-test npm start > /tmp/node-api.log 2>&1 &
       - name: Wait for APIs
         shell: bash
