@@ -26,7 +26,8 @@ class Search::RequestParamsTest < ActiveSupport::TestCase
       { from: '-1' },
       { size: '51' },
       { size: '1.5' },
-      { from: 'invalid' }
+      { from: 'invalid' },
+      { from: '9007199254740992' }
     ].each do |input|
       assert_raises(Search::RequestParams::InvalidParameter) do
         Search::RequestParams.new(input).search
