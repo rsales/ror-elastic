@@ -93,7 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Clone Node reference POC
-        run: git clone --depth 1 https://github.com/rsales/poc-elastic.git /tmp/poc-elastic
+        run: git clone --depth 1 https://github.com/rsales/poc-elastic.git peer/poc-elastic
       - uses: actions/setup-node@v4
         with:
           node-version: 22
