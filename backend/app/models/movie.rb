@@ -80,11 +80,10 @@ class Movie < ApplicationRecord
 
   def as_indexed_json(_options = {})
     genre_names = indexed_genres
-    content_parts = [
-      genre_names.join(' '),
-      original_title if original_title.present? && original_title != title,
-      ("language #{original_language}" if original_language.present?)
-    ].compact_blank
+    content_parts = [genre_names.join(' ')]
+    content_parts << original_title if original_title.present? && original_title != title
+    content_parts << "language #{original_language}" if original_language.present?
+    content_parts.compact_blank!
 
     {
       tmdb_id: tmdb_id.to_s,
