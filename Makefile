@@ -6,15 +6,36 @@ ES_URL ?= http://localhost:9200
 API_URL ?= http://localhost:3000
 INDEX ?= movies
 
-.PHONY: help setup up down logs wait-es health elastic kibana \
+.PHONY: help setup setup-env setup-backend setup-frontend db-setup \
+        up down logs wait-es health elastic kibana \
         install install-backend install-frontend \
         ingest ingest-reset sync sync-reset test test-backend build verify \
         backend frontend index-info api-smoke smoke
 
 help: ## List available local development commands
-	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-setup: up wait-es install ## Start infrastructure, wait for Elasticsearch, and install dependencies
+setup: ## Create env files, start Elasticsearch, install backend/frontend, prepare DB
+	$(MAKE) setup-env
+	$(MAKE) up
+	$(MAKE) wait-es
+	$(MAKE) setup-backend
+	$(MAKE) setup-frontend
+
+setup-env: ## Create the Rails env file from the example without overwriting it
+	@test -f backend/.env || cp backend/.env.example backend/.env
+	@echo "Environment file ready. Add TMDB_API_KEY to backend/.env before syncing TMDB data."
+
+setup-backend: ## Install Ruby gems and prepare the Rails database
+	$(MAKE) setup-env
+	$(MAKE) install-backend
+	$(MAKE) db-setup
+
+setup-frontend: ## Install Nuxt dependencies
+	$(MAKE) install-frontend
+
+db-setup: ## Create the database and run pending migrations
+	cd backend && bin/rails db:prepare
 
 up: ## Start Elasticsearch and Kibana
 	docker compose up -d
@@ -22,7 +43,7 @@ up: ## Start Elasticsearch and Kibana
 down: ## Stop containers without deleting the Elasticsearch data volume
 	docker compose down
 
-logs: ## Follow Elasticsearch and Kibana logs
+logs: ## Follow Docker Compose logs
 	docker compose logs -f
 
 wait-es: ## Wait until Elasticsearch responds
@@ -44,26 +65,26 @@ elastic: ## Open Elasticsearch in the browser (macOS)
 kibana: ## Open Kibana in the browser (macOS)
 	open http://localhost:5601
 
-install: install-backend install-frontend ## Install Rails and Nuxt dependencies
+install: install-backend install-frontend ## Install backend and frontend dependencies
 
-install-backend: ## Install Rails backend dependencies
+install-backend: ## Install Rails gem dependencies (Ruby version must be installed)
 	cd backend && bundle install
 
-install-frontend: ## Install Nuxt frontend dependencies
+install-frontend: ## Install Nuxt dependencies
 	cd frontend && pnpm install
 
-ingest: sync ## Ingest/update TMDB movies without deleting the index (alias for sync)
+ingest: sync ## Ingest/update TMDB movies without resetting the index
 
-sync: wait-es ## Rails-native alias for ingest
+sync: wait-es ## Rails-native sync command; PAGES overrides TMDB_SYNC_PAGES in .env
 	cd backend && $(if $(PAGES),TMDB_SYNC_PAGES=$(PAGES) )bin/rails runner 'Tmdb::SyncMoviesService.new.call'
 
 ingest-reset: sync-reset ## Recreate the index and ingest data (requires CONFIRM_RESET=1)
 
 sync-reset: wait-es ## Rails-native reset command (requires CONFIRM_RESET=1)
-	@test "$(CONFIRM_RESET)" = "1" || (echo "Destructive: this recreates the configured Elasticsearch index. Run: make ingest-reset CONFIRM_RESET=1 PAGES=$(PAGES)" >&2; exit 1)
+	@test "$(CONFIRM_RESET)" = "1" || (echo "Destructive: this recreates the configured Elasticsearch index. Run: make ingest-reset CONFIRM_RESET=1 [PAGES=25]" >&2; exit 1)
 	cd backend && $(if $(PAGES),TMDB_SYNC_PAGES=$(PAGES) )bin/rails runner 'Tmdb::SyncMoviesService.new(reset_index: true).call'
 
-test: test-backend ## Run all currently configured automated tests
+test: test-backend ## Run all configured backend tests
 
 test-backend: ## Run Rails/Minitest contract tests
 	cd backend && bin/rails test
@@ -79,7 +100,7 @@ backend: ## Start the Rails API
 frontend: ## Start the Nuxt development server
 	cd frontend && pnpm dev --port 3001
 
-index-info: ## Show Elasticsearch metadata for the movies index
+index-info: ## Show Elasticsearch metadata for the configured index
 	curl --silent --show-error --fail "$(ES_URL)/_cat/indices/$(INDEX)?v"
 
 api-smoke: ## Check health, search, and suggestions (Rails API must be running)
