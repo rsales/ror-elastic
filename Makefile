@@ -15,7 +15,7 @@ INDEX ?= movies
 help: ## List available local development commands
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-setup: ## Create env files, start Elasticsearch, install backend/frontend, prepare DB
+setup: ruby-check ## Create env files, start Elasticsearch, install backend/frontend, prepare DB
 	$(MAKE) setup-env
 	$(MAKE) up
 	$(MAKE) wait-es
@@ -67,7 +67,7 @@ elastic: ## Open Elasticsearch in the browser (macOS)
 kibana: ## Open Kibana in the browser (macOS)
 	open http://localhost:5601
 
-install: install-backend install-frontend ## Install backend and frontend dependencies
+install: install-backend install-ingestion install-frontend ## Install backend, ingestion alias, and frontend dependencies
 
 install-backend: ruby-check ## Install Rails gem dependencies
 	cd backend && bundle install
