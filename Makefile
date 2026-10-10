@@ -2,15 +2,27 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 PAGES ?=
-ES_URL ?= http://localhost:9200
-API_URL ?= http://localhost:3000
+ES_PORT ?= 9200
+KIBANA_PORT ?= 5601
+ES_HEAP_SIZE ?= 1g
+ES_MEM_LIMIT ?= 2g
+ES_URL ?= http://localhost:$(ES_PORT)
+API_PORT ?= 3000
+FRONTEND_PORT ?= 3001
+API_URL ?= http://localhost:$(API_PORT)
 INDEX ?= movies
+ELASTICSEARCH_URL ?= $(ES_URL)
+ELASTICSEARCH_INDEX ?= $(INDEX)
+CONTRACT_INDEX ?= movies-contract-test
+CONTRACT_SETUP_INDEX ?= 0
+NODE_API_URL ?= http://localhost:3000
+RAILS_API_URL ?= http://localhost:$(API_PORT)
 
 .PHONY: help setup setup-env setup-backend setup-ingestion setup-frontend db-setup ruby-check \
         up down logs wait-es health elastic kibana \
         install install-backend install-ingestion install-frontend \
         ingest ingest-reset sync sync-reset test test-backend build verify \
-        backend frontend index-info api-smoke smoke
+        backend frontend index-info api-smoke smoke contract-smoke
 
 help: ## List available local development commands
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -40,7 +52,7 @@ db-setup: ## Create the database and run pending migrations
 	cd backend && bin/rails db:prepare
 
 up: ## Start Elasticsearch and Kibana
-	docker compose up -d
+	ES_PORT=$(ES_PORT) KIBANA_PORT=$(KIBANA_PORT) ES_HEAP_SIZE=$(ES_HEAP_SIZE) ES_MEM_LIMIT=$(ES_MEM_LIMIT) docker compose up -d
 
 down: ## Stop containers without deleting the Elasticsearch data volume
 	docker compose down
@@ -65,7 +77,7 @@ elastic: ## Open Elasticsearch in the browser (macOS)
 	open "$(ES_URL)"
 
 kibana: ## Open Kibana in the browser (macOS)
-	open http://localhost:5601
+	open http://localhost:$(KIBANA_PORT)
 
 install: install-backend install-ingestion install-frontend ## Install backend, ingestion alias, and frontend dependencies
 
@@ -106,10 +118,10 @@ build: ## Build the Nuxt frontend for production
 verify: test build ## Run backend tests and build the frontend
 
 backend: ## Start the Rails API
-	cd backend && bin/rails server
+	cd backend && ELASTICSEARCH_URL=$(ELASTICSEARCH_URL) ELASTICSEARCH_INDEX=$(ELASTICSEARCH_INDEX) bin/rails server -p $(API_PORT)
 
 frontend: ## Start the Nuxt development server
-	cd frontend && pnpm dev --port 3001
+	cd frontend && NUXT_PUBLIC_API_BASE=$(API_URL)/api pnpm dev --port $(FRONTEND_PORT)
 
 index-info: ## Show Elasticsearch metadata for the configured index
 	curl --silent --show-error --fail "$(ES_URL)/_cat/indices/$(INDEX)?v"
@@ -121,3 +133,6 @@ api-smoke: ## Check health, search, and suggestions (Rails API must be running)
 	echo "== Suggestions =="; curl --silent --show-error --fail "$(API_URL)/api/suggest?q=spi"; echo
 
 smoke: api-smoke ## Alias for api-smoke
+
+contract-smoke: ## Run shared behavioral contract against Node and Rails APIs
+	CONTRACT_SETUP_INDEX=$(CONTRACT_SETUP_INDEX) CONTRACT_ES_URL=$(ES_URL) CONTRACT_INDEX=$(CONTRACT_INDEX) NODE_API_URL=$(NODE_API_URL) RAILS_API_URL=$(RAILS_API_URL) node scripts/search-contract.mjs
