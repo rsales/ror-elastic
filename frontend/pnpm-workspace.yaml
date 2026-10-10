@@ -1,0 +1,7 @@
+# Explicitly allow only dependency build scripts required by Nuxt's local toolchain.
+# Keep this allowlist narrow instead of disabling pnpm's script approval safeguards.
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  sharp: true
+  vue-demi: true
