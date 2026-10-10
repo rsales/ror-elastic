@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.5"
+          working-directory: backend
+          bundler-cache: true
+      - name: Scan Rails code with Brakeman
+        working-directory: backend
+        run: bin/brakeman --no-pager
+      - name: Audit locked gem dependencies
+        working-directory: backend
+        run: bin/bundler-audit
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.5"
+          working-directory: backend
+          bundler-cache: true
+      - name: Run RuboCop
+        working-directory: backend
+        run: bin/rubocop -f github
+
+  rails-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.5"
+          working-directory: backend
+          bundler-cache: true
+      - name: Prepare SQLite test database
+        working-directory: backend
+        run: bin/rails db:prepare
+      - name: Run Rails and controller tests
+        working-directory: backend
+        run: bin/rails test
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Build Nuxt frontend
+        working-directory: frontend
+        run: pnpm build
+
+  cross-poc-contract:
+    runs-on: ubuntu-latest
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          xpack.security.http.ssl.enabled: "false"
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: /tmp/poc-elastic/backend/package-lock.json
+      - name: Clone Node reference POC
+        run: git clone --depth 1 https://github.com/rsales/poc-elastic.git /tmp/poc-elastic
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.5"
+          working-directory: backend
+          bundler-cache: true
+      - name: Install Node API dependencies
+        run: npm ci --prefix /tmp/poc-elastic/backend
+      - name: Prepare Rails database
+        working-directory: backend
+        env:
+          RAILS_ENV: development
+        run: bin/rails db:prepare
+      - name: Start Rails and Node APIs on separate ports
+        shell: bash
+        run: |
+          cd backend
+          nohup env RAILS_ENV=development ELASTICSEARCH_URL=http://localhost:9200 ELASTICSEARCH_INDEX=movies-contract-test bundle exec rails server -p 3100 > /tmp/rails-api.log 2>&1 &
+          cd /tmp/poc-elastic/backend
+          nohup env PORT=3000 ES_URL=http://localhost:9200 INDEX=movies-contract-test npm start > /tmp/node-api.log 2>&1 &
+      - name: Wait for APIs
+        shell: bash
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://localhost:3000/health >/dev/null &&
+               curl --silent --fail http://localhost:3100/api/health | grep -q '"status":"ok"'; then
+              echo "Both APIs are ready."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Node API log:"; cat /tmp/node-api.log || true
+          echo "Rails API log:"; cat /tmp/rails-api.log || true
+          exit 1
+      - name: Execute shared behavior fixtures against both APIs
+        env:
+          CONTRACT_SETUP_INDEX: "1"
+          CONTRACT_ES_URL: http://localhost:9200
+          CONTRACT_INDEX: movies-contract-test
+          NODE_API_URL: http://localhost:3000
+          RAILS_API_URL: http://localhost:3100
+        run: node scripts/search-contract.mjs
