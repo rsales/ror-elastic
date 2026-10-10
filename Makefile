@@ -31,7 +31,7 @@ setup-backend: ## Install Ruby gems and prepare the Rails database
 	$(MAKE) install-backend
 	$(MAKE) db-setup
 
-setup-ingestion: install-ingestion ## Rails TMDB ingestion is provided by the backend service
+setup-ingestion: setup-env install-ingestion ## Rails TMDB ingestion is provided by the backend service
 
 setup-frontend: ## Install Nuxt dependencies
 	$(MAKE) install-frontend
