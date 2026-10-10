@@ -279,7 +279,7 @@ make backend API_PORT=3000 ES_URL=http://localhost:9200 INDEX=movies-contract-te
 # Terminal 2 (from this Rails repository):
 make backend API_PORT=3100 ELASTICSEARCH_URL=http://localhost:9200 ELASTICSEARCH_INDEX=movies-contract-test
 # Terminal 3:
-make contract-smoke CONTRACT_SETUP_INDEX=1 \\
+make contract-smoke CONTRACT_SETUP_INDEX=1 \
   ES_URL=http://localhost:9200 CONTRACT_INDEX=movies-contract-test \\
   NODE_API_URL=http://localhost:3000 RAILS_API_URL=http://localhost:3100
 ```
