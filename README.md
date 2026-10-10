@@ -72,6 +72,8 @@ Elasticsearch is configured for a local single-node POC with security disabled. 
 
 Run all commands from the repository root.
 
+The frontend uses pnpm 11. Its local `frontend/pnpm-workspace.yaml` explicitly allowlists the native dependency build scripts required by the current toolchain (`@parcel/watcher`, `esbuild`, `sharp`, and `vue-demi`). This keeps pnpm's build-script security checks enabled without requiring an interactive approval on every fresh install. Review this allowlist when direct frontend dependencies change. See the [pnpm 11 release notes](https://pnpm.io/blog/releases/11.0) and [workspace configuration documentation](https://pnpm.io/pnpm-workspace_yaml).
+
 ### 1. Configure environment variables
 
 ```bash
@@ -281,6 +283,7 @@ make api-smoke
 - **Ruby version missing:** run `make ruby-check` and install the version from `backend/.ruby-version` (with rbenv, use `rbenv install "$(cat backend/.ruby-version)"`).
 - **Ruby version installed, gems missing:** run `make setup-backend` or rerun `make setup`; installation of Ruby and installation of Bundler gems are separate steps.
 - **TMDB authentication fails:** check `TMDB_API_KEY` in `backend/.env`.
+- **Frontend install reports `ERR_PNPM_IGNORED_BUILDS`:** confirm `frontend/pnpm-workspace.yaml` is present on your branch, then rerun `make setup-frontend`. The project explicitly allows only the listed dependency build scripts.
 - **Elasticsearch unavailable:** run `make up`, inspect `make logs`, and verify `ELASTICSEARCH_URL`.
 - **No search results:** confirm ingestion succeeded and the `movies` index exists with `make index-info`.
 - **Mapping changed:** run the guarded reset and reingest data; this deletes the existing configured index.
