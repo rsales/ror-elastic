@@ -121,7 +121,7 @@ backend: ## Start the Rails API
 	cd backend && ELASTICSEARCH_URL=$(ELASTICSEARCH_URL) ELASTICSEARCH_INDEX=$(ELASTICSEARCH_INDEX) bin/rails server -p $(API_PORT)
 
 frontend: ## Start the Nuxt development server
-	cd frontend && NUXT_PUBLIC_API_BASE=$(API_URL)/api pnpm dev --port $(FRONTEND_PORT)
+	cd frontend && NUXT_PUBLIC_API_BASE=$(API_URL)/api pnpm exec nuxt dev --port $(FRONTEND_PORT)
 
 index-info: ## Show Elasticsearch metadata for the configured index
 	curl --silent --show-error --fail "$(ES_URL)/_cat/indices/$(INDEX)?v"
