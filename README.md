@@ -1,530 +1,297 @@
-# ROR Elastic — Movie Search Engine POC
+# ROR Elastic — Movie Search POC
 
-A modern search engine proof of concept using:
+A full-stack movie-search proof of concept using **Ruby on Rails 8**, **Elasticsearch 8**, and a **Nuxt 4 frontend**. Movie metadata is sourced from TMDB.
 
-* Ruby on Rails API
-* Nuxt 4
-* ElasticSearch
-* Kibana
-* Docker Compose
-* TMDB API
+This is the Rails implementation of the search experiments being compared with [poc-elastic](https://github.com/rsales/poc-elastic). Both POCs share behavioral scenarios in `contracts/search-cases.json`; each keeps the response envelope required by its existing frontend.
 
-This project was inspired by:
+## Capabilities
 
-* [https://github.com/rsalesSB/poc-elastic](https://github.com/rsalesSB/poc-elastic)
+- TMDB ingestion and Elasticsearch document mapping
+- English text analysis, stemming and accent folding
+- Full-text search, field boosts and phrase ranking
+- Quoted phrases, required/excluded terms, wildcard and fuzzy query syntax
+- Completion-based autocomplete
+- Genre and minimum-rating filters
+- Genre and five-year histogram facets
+- Highlighting, pagination and deterministic ordering
+- Request parameter validation and normalized API errors
+- Shared search-contract fixtures
 
-The goal is to build a search experience similar to:
+## Architecture
 
-* Google Search
-* Netflix Search
-* IMDb Search
-* Algolia Instant Search
-
----
-
-# Stack
-
-## Backend
-
-* Rails 8 API
-* Solid Queue
-* ElasticSearch Ruby
-* HTTParty
-
-## Frontend
-
-* Nuxt 4
-* TailwindCSS v4
-* Nuxt UI
-* VueUse
-* PNPM
-
-## Search Engine
-
-* ElasticSearch 8
-* Kibana
-
-## Infrastructure
-
-* Docker Compose
-* Monorepo architecture
-
----
-
-# Features
-
-* Full-text search
-* Google-style search
-* Real-time search
-* Debounced queries
-* Highlight matches
-* Search ranking
-* Fuzzy search
-* TMDB integration
-* Movie cards
-* Kibana inspection
-* Elastic Query DSL
-* Search API
-* Responsive UI
-
----
-
-# Project Structure
+The Nuxt frontend calls the Rails API over HTTP. The API translates request parameters into Elasticsearch Query DSL. The Rails TMDB sync service fetches movie metadata and indexes it into the `movies` index.
 
 ```text
-ror-elastic/
-├── backend/
-│   ├── app/
-│   ├── config/
-│   ├── db/
-│   └── ...
-│
-├── frontend/
-│   ├── app/
-│   │   ├── components/
-│   │   ├── composables/
-│   │   ├── pages/
-│   │   └── assets/
-│   │
-│   └── ...
-│
-├── docker-compose.yml
-├── Makefile
-└── README.md
+                       ┌──────────────────┐
+                       │     Nuxt 4       │
+                       │    Frontend      │
+                       └────────┬─────────┘
+                                │ HTTP
+                                ▼
+                       ┌──────────────────┐
+                       │   Rails 8 API    │
+                       │ Search + Suggest │
+                       └────────┬─────────┘
+                                │ Elasticsearch Query DSL
+                                ▼
+                       ┌──────────────────┐
+                       │ Elasticsearch    │
+                       │   movies index   │
+                       └────────▲─────────┘
+                                │ document indexing
+                       ┌────────┴─────────┐
+                       │ Rails TMDB Sync  │
+                       │ + genre mapping  │
+                       └────────▲─────────┘
+                                │ HTTP API
+                                ▼
+                       ┌──────────────────┐
+                       │     TMDB API     │
+                       └──────────────────┘
 ```
 
----
+## Prerequisites
 
-# Requirements
+- Ruby version pinned in `backend/.ruby-version` (currently Ruby 3.4.5) and Bundler
+- Node.js 22+ and PNPM 10+
+- Docker and Docker Compose
+- A TMDB v3 API key or v4 Read Access Token
+- `curl`; `jq` is optional for formatted terminal output
 
-## Backend
-
-* Ruby 3.4+
-* Rails 8+
-
-## Frontend
-
-* Node.js 22+
-* PNPM 10+
-
-## Infrastructure
-
-* Docker
-* Docker Compose
-
----
-
-# Getting Started
-
-## Clone repository
+If you use rbenv and the required Ruby version is missing, install it before setup:
 
 ```bash
-git clone <repository-url>
-
-cd ror-elastic
+rbenv install "$(cat backend/.ruby-version)"
 ```
 
----
+The Rails Makefile includes `make ruby-check` and reports the required version when the active Ruby does not match. Installing Ruby does not install the application's gems; `make setup` or `make setup-backend` runs `bundle install` as well.
 
-# ElasticSearch + Kibana
+Elasticsearch is configured for a local single-node POC with security disabled. Do not expose this stack to a public network or use it as a production deployment.
 
-## Start services
+## Quick start
+
+Run all commands from the repository root.
+
+The frontend uses pnpm 11. Its local `frontend/pnpm-workspace.yaml` explicitly allowlists the native dependency build scripts required by the current toolchain (`@parcel/watcher`, `esbuild`, `sharp`, and `vue-demi`). This keeps pnpm's build-script security checks enabled without requiring an interactive approval on every fresh install. Review this allowlist when direct frontend dependencies change. See the [pnpm 11 release notes](https://pnpm.io/blog/releases/11.0) and [workspace configuration documentation](https://pnpm.io/pnpm-workspace_yaml).
+
+### 1. Configure environment variables
 
 ```bash
-make up
+make setup-env
 ```
 
-Or:
+This creates `backend/.env` from `backend/.env.example` only when the local file does not exist. Add your TMDB v3 key or v4 Read Access Token to `backend/.env`. The Elasticsearch defaults are:
+
+- `ELASTICSEARCH_URL=http://localhost:9200`
+- `ELASTICSEARCH_INDEX=movies`
+- `TMDB_SYNC_PAGES=25`
+
+Do not commit local `.env` files or credentials.
+
+### 2. Start services and install dependencies
 
 ```bash
-docker compose up -d
+make setup
 ```
 
----
+This checks the Ruby version, creates any missing environment file, starts Elasticsearch and Kibana, waits for Elasticsearch, installs Ruby gems and Nuxt dependencies, and prepares the Rails database. It does not ingest movie data automatically.
 
-# Services
+| Service | URL |
+| --- | --- |
+| Elasticsearch | http://localhost:9200 |
+| Kibana | http://localhost:5601 |
+| Rails API | http://localhost:3000 |
+| Nuxt frontend | http://localhost:3001 |
 
-| Service       | URL                                            |
-| ------------- | ---------------------------------------------- |
-| ElasticSearch | [http://localhost:9200](http://localhost:9200) |
-| Kibana        | [http://localhost:5601](http://localhost:5601) |
-| Rails API     | [http://localhost:3000](http://localhost:3000) |
-| Nuxt Frontend | [http://localhost:3001](http://localhost:3001) |
-
----
-
-# Backend Setup
-
-## Install dependencies
+Check Elasticsearch:
 
 ```bash
-cd backend
-
-bundle install
+make health
 ```
 
----
+### 3. Ingest movie data
 
-# Environment Variables
-
-## backend/.env
-
-```env
-TMDB_API_KEY=YOUR_TMDB_API_KEY
-ELASTICSEARCH_URL=http://localhost:9200
-```
-
----
-
-# Database
-
-## Create database
+For a fresh index, recreate the index and ingest the configured number of TMDB popular-movie pages:
 
 ```bash
-rails db:create
-rails db:migrate
+make ingest-reset CONFIRM_RESET=1
 ```
 
----
+**Warning:** `ingest-reset` deletes and recreates the configured Elasticsearch index before ingestion. Use it only when replacing the existing index contents is acceptable.
 
-# Start Rails API
+To ingest or update without deleting the index:
+
+```bash
+make ingest
+```
+
+The Rails-native names are `make sync` and `make sync-reset`; `ingest` and `ingest-reset` are shared aliases to make the basic workflow consistent across both POCs. Override the page count for an individual run:
+
+```bash
+make ingest PAGES=25
+make ingest-reset CONFIRM_RESET=1 PAGES=25
+```
+
+The sync service maps TMDB genre IDs to names, indexes each movie using the TMDB ID as Elasticsearch `_id`, refreshes the index, and reports successful indexing operations and the final unique document count. Repeated TMDB IDs update the same Elasticsearch document.
+
+### 4. Prepare, test, and run the apps
+
+Run just one part of setup when needed:
+
+```bash
+make setup-backend
+make setup-frontend
+```
+
+TMDB ingestion uses the Rails backend, so `make setup-ingestion` is also available as an alias for installing the backend bundle.
+
+Run tests and build the frontend:
+
+```bash
+make test
+make build
+# Or both:
+make verify
+```
+
+Start the Rails API and Nuxt frontend in **separate terminals**:
 
 ```bash
 make backend
 ```
 
-Or:
-
-```bash
-cd backend
-
-rails s
-```
-
----
-
-# Frontend Setup
-
-## Install dependencies
-
-```bash
-cd frontend
-
-pnpm install
-```
-
----
-
-# Start Nuxt
-
 ```bash
 make frontend
 ```
 
-Or:
+Open http://localhost:3001. Use `Ctrl+C` to stop each foreground process.
+
+## Makefile commands
+
+Run `make help` to list targets. The command names intentionally match the Node POC where their purposes overlap.
+
+| Command | Description |
+| --- | --- |
+| `make setup` | Check Ruby, create env files, start infrastructure, install dependencies and prepare the database |
+| `make setup-env` | Create the Rails environment file without overwriting an existing one |
+| `make setup-backend` | Install Ruby gems and prepare the Rails database |
+| `make setup-ingestion` | Compatibility alias; ingestion is implemented inside the Rails backend |
+| `make setup-frontend` | Install Nuxt dependencies |
+| `make up` / `make down` | Start/stop Elasticsearch and Kibana; data volume is preserved |
+| `make wait-es` / `make health` | Wait for Elasticsearch / display cluster health |
+| `make install` | Install backend and frontend dependencies |
+| `make ingest PAGES=25` / `make sync PAGES=25` | Ingest/update TMDB movies without resetting the index |
+| `make ingest-reset CONFIRM_RESET=1 PAGES=25` | Recreate the index and ingest data |
+| `make test` | Run Rails/Minitest tests |
+| `make build` / `make verify` | Build Nuxt / run tests and build |
+| `make backend` / `make frontend` | Start Rails / Nuxt |
+| `make index-info` | Inspect the configured Elasticsearch index |
+| `make api-smoke` | Check health, browse search and suggestions |
+
+`ES_URL`, `API_URL`, and `INDEX` can override defaults for local helper commands. The Rails application uses `ELASTICSEARCH_URL` and `ELASTICSEARCH_INDEX` for its client and index name.
+
+## Ingestion and index mapping
+
+The model mapping is defined by `Movie` in `backend/app/models/movie.rb`. Indexed fields include `tmdb_id`, `title`, `original_title`, `short_description`, `overview`, `content`, `genres`, `year`, `release_date`, `original_language`, `popularity`, `vote_average`, `poster_url`, `poster_path`, and `backdrop_path`.
+
+The Rails database stores genre names as JSON text in the existing `genres` column; `Movie#as_indexed_json` exposes genres to Elasticsearch as an array. Mapping changes require recreating and repopulating the index with the guarded `make ingest-reset CONFIRM_RESET=1` command.
+
+## Search API contract
+
+The Rails API listens on port 3000 and preserves the `items`, `facets`, and `took_ms` response fields consumed by the existing Nuxt frontend. The Node POC returns `hits`; cross-POC parity should be evaluated by matching document IDs, filters, query semantics, and expected ordering rather than forcing the same response envelope or equal Elasticsearch `_score` values.
+
+### Health
+
+`GET /api/health` returns HTTP 200 when Elasticsearch is reachable and HTTP 503 otherwise.
 
 ```bash
-cd frontend
-
-pnpm dev --port 3001
+curl -i http://localhost:3000/api/health
 ```
 
----
+### Search
 
-# TMDB API
+`GET /api/search`
 
-Create a TMDB account:
-
-* [https://developer.themoviedb.org/docs/getting-started](https://developer.themoviedb.org/docs/getting-started)
-
-Generate an API key and add it to:
-
-```env
-backend/.env
-```
-
----
-
-# Sync Movies
-
-## Populate movies from TMDB
-
-Open Rails console:
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `q` | string | empty | Text query; empty query browses all indexed documents |
+| `genres` | string | empty | Comma-separated exact genre filters, e.g. `Action,Drama` |
+| `min_rating` / `minRating` | number | none | Minimum `vote_average`, from 0 to 10 |
+| `from` | integer | `0` | Non-negative pagination offset |
+| `size` | integer | `20` | Page size from 1 to 50 |
 
 ```bash
-cd backend
+# Browse
+curl -s "http://localhost:3000/api/search?size=5" | jq
 
-rails c
+# Search, phrase and exclusion
+curl -sG --data-urlencode 'q="Spider-Man" -Homecoming' \
+  "http://localhost:3000/api/search" | jq '{total, titles: [.items[].title]}'
+
+# Search with facets and filters
+curl -sG \
+  --data-urlencode 'q=space adventure' \
+  --data-urlencode 'genres=Science Fiction' \
+  --data-urlencode 'min_rating=7' \
+  "http://localhost:3000/api/search" | jq
 ```
 
-Run:
+### Query semantics
 
-```ruby
-SyncMoviesJob.perform_now
-```
+- Ordinary terms use `simple_query_string` with default operator `OR` for broad recall.
+- A query containing an exclusion such as `"Spider-Man" -Homecoming` switches the default operator to `AND`, keeping the positive clause mandatory while excluding matches for the negative term.
+- Supported syntax includes quoted phrases, required terms (`+`), exclusions (`-`), wildcards, fuzzy terms and grouping supported by `simple_query_string`.
+- A separate phrase clause boosts ranking; it is not independently mandatory.
+- Genre and rating filters do not directly contribute to relevance scoring.
+- Text queries sort by score, then popularity and TMDB ID. Browse mode sorts by popularity and TMDB ID.
+- Responses include genre facets, five-year histogram facets, and `<mark>` highlights.
 
----
+### Suggestions
 
-# ElasticSearch Index
-
-## Create index
-
-```ruby
-Movie.__elasticsearch__.create_index!(force: true)
-```
-
----
-
-# Reindex documents
-
-```ruby
-Movie.find_each do |movie|
-  movie.__elasticsearch__.index_document
-end
-```
-
----
-
-# Search API
-
-## Endpoint
-
-```text
-GET /api/search?q=mario
-```
-
----
-
-# Example Response
-
-```json
-{
-  "total": 5,
-  "items": [
-    {
-      "title": "The Super Mario Galaxy Movie",
-      "overview": "...",
-      "score": 31.84
-    }
-  ]
-}
-```
-
----
-
-# ElasticSearch Features
-
-## Query DSL
-
-Uses:
-
-* multi_match
-* simple_query_string
-* fuzziness
-* highlight
-* ranking
-* filters
-
----
-
-# Search Operators
-
-Supported operators:
-
-| Operator     | Example         |
-| ------------ | --------------- |
-| Exact phrase | "super mario"   |
-| Exclusion    | mario -kart     |
-| AND          | mario AND luigi |
-| OR           | mario OR zelda  |
-| Fuzzy        | mraio           |
-
----
-
-# Frontend Architecture
-
-## Components
-
-```text
-frontend/app/components/
-├── movie/
-│   ├── MovieCard.vue
-│   ├── MovieGrid.vue
-│   └── MovieHighlight.vue
-│
-└── search/
-    ├── SearchBar.vue
-    ├── SearchFilters.vue
-    ├── SearchHeader.vue
-    ├── SearchPagination.vue
-    └── SearchResults.vue
-```
-
----
-
-# Real-time Search
-
-The frontend implements:
-
-* watch(query)
-* debounced search
-* instant results
-* loading states
-
-Using:
-
-```ts
-useDebounceFn()
-```
-
-from VueUse.
-
----
-
-# Docker Compose
-
-## Current services
-
-* ElasticSearch
-* Kibana
-
----
-
-# Makefile Commands
-
-## Start ElasticSearch + Kibana
+`GET /api/suggest?q=spi&size=5` uses the `title.suggest` completion field with fuzzy completion and duplicate skipping. The size must be between 1 and 10.
 
 ```bash
-make up
+curl -s "http://localhost:3000/api/suggest?q=spi" | jq
 ```
 
----
+### Movie lookup and validation
 
-## Stop containers
+`GET /api/movies/:id` fetches a movie by TMDB ID (404 when it is not indexed). Invalid scalar parameters, pagination values, ratings or suggestion sizes return HTTP 400. Unexpected failures return a generic HTTP 500.
 
 ```bash
-make down
+curl -i http://localhost:3000/api/movies/634649
+curl -i "http://localhost:3000/api/search?from=-1"
+curl -i "http://localhost:3000/api/search?size=51"
+curl -i "http://localhost:3000/api/search?min_rating=11"
 ```
 
----
+## Shared fixtures and parity checks
 
-## Start backend
+The shared scenarios live in `contracts/search-cases.json` and are intended for both `poc-elastic` and `ror-elastic`. They cover plain queries, phrases, required and excluded terms, wildcard/fuzzy queries, filters, browsing, suggestions and accent folding.
+
+Run local verification with:
 
 ```bash
-make backend
+make verify
+make api-smoke
 ```
 
----
+`api-smoke` requires the backend to be running; meaningful result checks also require a populated index. Compare matching TMDB document IDs, filter correctness, exclusions and expected relative ordering—not exact `_score` values.
 
-## Start frontend
+## Troubleshooting
 
-```bash
-make frontend
-```
-
----
-
-## Open Kibana
-
-```bash
-make kibana
-```
-
----
-
-# Kibana
-
-Access:
-
-```text
-http://localhost:5601
-```
-
-Useful for:
-
-* inspecting indices
-* testing queries
-* analyzing mappings
-* debugging scoring
-* search tuning
-
----
-
-# Future Improvements
-
-## Search
-
-* search_as_you_type
-* autocomplete
-* synonyms
-* stemming
-* semantic search
-* vector search
-* recommendations
-* trending searches
+- **Ruby version missing:** run `make ruby-check` and install the version from `backend/.ruby-version` (with rbenv, use `rbenv install "$(cat backend/.ruby-version)"`).
+- **Ruby version installed, gems missing:** run `make setup-backend` or rerun `make setup`; installation of Ruby and installation of Bundler gems are separate steps.
+- **TMDB authentication fails:** check `TMDB_API_KEY` in `backend/.env`.
+- **Frontend install reports `ERR_PNPM_IGNORED_BUILDS`:** confirm `frontend/pnpm-workspace.yaml` is present on your branch, then rerun `make setup-frontend`. The project explicitly allows only the listed dependency build scripts.
+- **Elasticsearch unavailable:** run `make up`, inspect `make logs`, and verify `ELASTICSEARCH_URL`.
+- **No search results:** confirm ingestion succeeded and the `movies` index exists with `make index-info`.
+- **Mapping changed:** run the guarded reset and reingest data; this deletes the existing configured index.
 
 ## Frontend
 
-* infinite scroll
-* filters
-* search history
-* animations
-* loading skeletons
-* responsive improvements
+The Nuxt 4 app uses the `frontend/app/` source directory. It includes debounced search, autocomplete suggestions, filters, highlighted results and pagination. Start it with `make frontend` and open http://localhost:3001.
 
-## Backend
-
-* pagination
-* caching
-* background sync
-* API authentication
-* rate limiting
-
----
-
-# Development Notes
-
-## Nuxt 4 Minimal
-
-This project uses:
-
-```text
-app/
-```
-
-as the source directory.
-
-Therefore:
-
-* pages
-* components
-* assets
-* composables
-
-must be inside:
-
-```text
-frontend/app/
-```
-
----
-
-# CORS
-
-Rails uses:
-
-```ruby
-rack-cors
-```
-
-configured in:
-
-```text
-backend/config/initializers/cors.rb
-```
-
----
-
-# License
+## License
 
 MIT
