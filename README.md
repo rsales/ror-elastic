@@ -1,22 +1,25 @@
 # ROR Elastic — Movie Search POC
 
-A full-stack movie-search proof of concept built with **Ruby on Rails 8**, **Elasticsearch 8**, **Nuxt 4**, and TMDB data. This POC is the Rails counterpart to [poc-elastic](https://github.com/rsales/poc-elastic) and is being aligned against a shared behavioral search contract as groundwork for Eloisesearch.
+A full-stack movie-search proof of concept using **Ruby on Rails 8**, **Elasticsearch 8**, and a **Nuxt 4 frontend**. Movie metadata is sourced from TMDB.
+
+This is the Rails implementation of the search experiments being compared with [poc-elastic](https://github.com/rsales/poc-elastic). Both POCs share behavioral scenarios in `contracts/search-cases.json`; each keeps the response envelope required by its existing frontend.
 
 ## Capabilities
 
 - TMDB ingestion and Elasticsearch document mapping
-- English analyzer with stemming and accent folding
-- Full-text search with field boosts and phrase boosting
-- Quoted phrases, required/excluded terms, wildcard and fuzzy syntax
+- English text analysis, stemming and accent folding
+- Full-text search, field boosts and phrase ranking
+- Quoted phrases, required/excluded terms, wildcard and fuzzy query syntax
 - Completion-based autocomplete
 - Genre and minimum-rating filters
 - Genre and five-year histogram facets
-- Highlighted matches
-- Pagination and deterministic tie-breaking
+- Highlighting, pagination and deterministic ordering
 - Request parameter validation and normalized API errors
-- Shared behavior fixtures for comparison with the Node POC
+- Shared search-contract fixtures
 
 ## Architecture
+
+The Nuxt frontend calls the Rails API over HTTP. The API translates request parameters into Elasticsearch Query DSL. The Rails TMDB sync service fetches movie metadata and indexes it into the `movies` index.
 
 ```text
                        ┌──────────────────┐
@@ -32,13 +35,13 @@ A full-stack movie-search proof of concept built with **Ruby on Rails 8**, **Ela
                                 │ Elasticsearch Query DSL
                                 ▼
                        ┌──────────────────┐
-                       │  Elasticsearch   │
+                       │ Elasticsearch    │
                        │   movies index   │
                        └────────▲─────────┘
-                                │ index documents
+                                │ document indexing
                        ┌────────┴─────────┐
                        │ Rails TMDB Sync  │
-                       │  + genre mapping │
+                       │ + genre mapping  │
                        └────────▲─────────┘
                                 │ HTTP API
                                 ▼
@@ -49,31 +52,39 @@ A full-stack movie-search proof of concept built with **Ruby on Rails 8**, **Ela
 
 ## Prerequisites
 
-- Ruby 3.4+ and Bundler
+- Ruby version pinned in `backend/.ruby-version` (currently Ruby 3.4.5) and Bundler
 - Node.js 22+ and PNPM 10+
 - Docker and Docker Compose
 - A TMDB v3 API key or v4 Read Access Token
-- `curl` (and optionally `jq`)
+- `curl`; `jq` is optional for formatted terminal output
+
+If you use rbenv and the required Ruby version is missing, install it before setup:
+
+```bash
+rbenv install "$(cat backend/.ruby-version)"
+```
+
+The Rails Makefile includes `make ruby-check` and reports the required version when the active Ruby does not match. Installing Ruby does not install the application's gems; `make setup` or `make setup-backend` runs `bundle install` as well.
 
 Elasticsearch is configured for a local single-node POC with security disabled. Do not expose this stack to a public network or use it as a production deployment.
 
 ## Quick start
 
-Run commands from the repository root.
+Run all commands from the repository root.
 
-### 1. Configure Rails environment
+### 1. Configure environment variables
 
 ```bash
-cp backend/.env.example backend/.env
+make setup-env
 ```
 
-Set `TMDB_API_KEY` in `backend/.env`. The sync client supports the TMDB v3 API key and v4 Bearer token. The sample file also defines:
+This creates `backend/.env` from `backend/.env.example` only when the local file does not exist. Add your TMDB v3 key or v4 Read Access Token to `backend/.env`. The Elasticsearch defaults are:
 
 - `ELASTICSEARCH_URL=http://localhost:9200`
 - `ELASTICSEARCH_INDEX=movies`
-- `TMDB_SYNC_PAGES=25` (up to 20 movies per page)
+- `TMDB_SYNC_PAGES=25`
 
-Do not commit local `.env` files or API credentials.
+Do not commit local `.env` files or credentials.
 
 ### 2. Start services and install dependencies
 
@@ -81,7 +92,7 @@ Do not commit local `.env` files or API credentials.
 make setup
 ```
 
-This starts Elasticsearch/Kibana and installs the Rails and Nuxt dependencies.
+This checks the Ruby version, creates any missing environment file, starts Elasticsearch and Kibana, waits for Elasticsearch, installs Ruby gems and Nuxt dependencies, and prepares the Rails database. It does not ingest movie data automatically.
 
 | Service | URL |
 | --- | --- |
@@ -96,43 +107,52 @@ Check Elasticsearch:
 make health
 ```
 
-### 3. Prepare the database
+### 3. Ingest movie data
+
+For a fresh index, recreate the index and ingest the configured number of TMDB popular-movie pages:
 
 ```bash
-cd backend
-bin/rails db:create db:migrate
-cd ..
+make ingest-reset CONFIRM_RESET=1
 ```
 
-### 4. Index movies from TMDB
+**Warning:** `ingest-reset` deletes and recreates the configured Elasticsearch index before ingestion. Use it only when replacing the existing index contents is acceptable.
 
-For a fresh local index, re-create the Elasticsearch index and synchronize 25 pages (about 500 TMDB records):
+To ingest or update without deleting the index:
 
 ```bash
-make sync-reset CONFIRM_RESET=1 PAGES=25
+make ingest
 ```
 
-**Warning:** `sync-reset` deletes and recreates the configured Elasticsearch index. Only use it when replacing that index's current contents is acceptable.
-
-To ingest or update records without deleting the index:
+The Rails-native names are `make sync` and `make sync-reset`; `ingest` and `ingest-reset` are shared aliases to make the basic workflow consistent across both POCs. Override the page count for an individual run:
 
 ```bash
-make sync PAGES=25
+make ingest PAGES=25
+make ingest-reset CONFIRM_RESET=1 PAGES=25
 ```
 
-The sync service maps TMDB genre IDs to genre names, writes the shared search fields, indexes each document with the TMDB ID as its Elasticsearch document ID, refreshes Elasticsearch, and reports both successful indexing operations and the final document count. It uses the TMDB ID as the Elasticsearch document ID, so duplicate IDs from different TMDB pages update the same indexed document.
+The sync service maps TMDB genre IDs to names, indexes each movie using the TMDB ID as Elasticsearch `_id`, refreshes the index, and reports successful indexing operations and the final unique document count. Repeated TMDB IDs update the same Elasticsearch document.
 
-The Rails database stores genre names as JSON text in the existing `genres` column; `Movie#as_indexed_json` exposes them to Elasticsearch as a JSON array. If mapping fields change, use `make sync-reset CONFIRM_RESET=1` to recreate the index and re-index documents.
+### 4. Prepare, test, and run the apps
 
-### 5. Run tests and start both apps
+Run just one part of setup when needed:
 
-Run the Rails contract tests:
+```bash
+make setup-backend
+make setup-frontend
+```
+
+TMDB ingestion uses the Rails backend, so `make setup-ingestion` is also available as an alias for installing the backend bundle.
+
+Run tests and build the frontend:
 
 ```bash
 make test
+make build
+# Or both:
+make verify
 ```
 
-Start the API and frontend in separate terminals:
+Start the Rails API and Nuxt frontend in **separate terminals**:
 
 ```bash
 make backend
@@ -142,52 +162,61 @@ make backend
 make frontend
 ```
 
-Open http://localhost:3001.
+Open http://localhost:3001. Use `Ctrl+C` to stop each foreground process.
 
 ## Makefile commands
 
-Run `make help` for the list of targets.
+Run `make help` to list targets. The command names intentionally match the Node POC where their purposes overlap.
 
 | Command | Description |
 | --- | --- |
-| `make setup` | Start Elasticsearch/Kibana and install app dependencies |
-| `make up` / `make down` | Start/stop containers; down preserves the data volume |
-| `make logs` | Follow Docker Compose logs |
-| `make health` | Check Elasticsearch health |
-| `make elastic` / `make kibana` | Open local Elasticsearch/Kibana in a browser (macOS) |
-| `make install` | Install Rails and Nuxt dependencies |
-| `make sync PAGES=25` | Ingest/update TMDB movies without resetting the index |
-| `make sync-reset CONFIRM_RESET=1 PAGES=25` | Recreate the index and ingest data |
+| `make setup` | Check Ruby, create env files, start infrastructure, install dependencies and prepare the database |
+| `make setup-env` | Create the Rails environment file without overwriting an existing one |
+| `make setup-backend` | Install Ruby gems and prepare the Rails database |
+| `make setup-ingestion` | Compatibility alias; ingestion is implemented inside the Rails backend |
+| `make setup-frontend` | Install Nuxt dependencies |
+| `make up` / `make down` | Start/stop Elasticsearch and Kibana; data volume is preserved |
+| `make wait-es` / `make health` | Wait for Elasticsearch / display cluster health |
+| `make install` | Install backend and frontend dependencies |
+| `make ingest PAGES=25` / `make sync PAGES=25` | Ingest/update TMDB movies without resetting the index |
+| `make ingest-reset CONFIRM_RESET=1 PAGES=25` | Recreate the index and ingest data |
 | `make test` | Run Rails/Minitest tests |
-| `make index-info` | Show the Elasticsearch index and document count |
+| `make build` / `make verify` | Build Nuxt / run tests and build |
 | `make backend` / `make frontend` | Start Rails / Nuxt |
-| `make api-smoke` | Check health, search and suggestions (API must be running) |
+| `make index-info` | Inspect the configured Elasticsearch index |
+| `make api-smoke` | Check health, browse search and suggestions |
+
+`ES_URL`, `API_URL`, and `INDEX` can override defaults for local helper commands. The Rails application uses `ELASTICSEARCH_URL` and `ELASTICSEARCH_INDEX` for its client and index name.
+
+## Ingestion and index mapping
+
+The model mapping is defined by `Movie` in `backend/app/models/movie.rb`. Indexed fields include `tmdb_id`, `title`, `original_title`, `short_description`, `overview`, `content`, `genres`, `year`, `release_date`, `original_language`, `popularity`, `vote_average`, `poster_url`, `poster_path`, and `backdrop_path`.
+
+The Rails database stores genre names as JSON text in the existing `genres` column; `Movie#as_indexed_json` exposes genres to Elasticsearch as an array. Mapping changes require recreating and repopulating the index with the guarded `make ingest-reset CONFIRM_RESET=1` command.
 
 ## Search API contract
 
-The Rails API keeps the response envelope that the existing Nuxt frontend consumes (`items`, not the Node POC's `hits`). Parity is defined by query behavior, fields, filters, ordering expectations and error semantics; the two POCs need not use identical JSON envelopes or produce equal `_score` values.
+The Rails API listens on port 3000 and preserves the `items`, `facets`, and `took_ms` response fields consumed by the existing Nuxt frontend. The Node POC returns `hits`; cross-POC parity should be evaluated by matching document IDs, filters, query semantics, and expected ordering rather than forcing the same response envelope or equal Elasticsearch `_score` values.
 
-### `GET /api/health`
+### Health
 
-Returns HTTP 200 when Elasticsearch is reachable, for example:
+`GET /api/health` returns HTTP 200 when Elasticsearch is reachable and HTTP 503 otherwise.
 
-```json
-{ "status": "ok", "es": "green" }
+```bash
+curl -i http://localhost:3000/api/health
 ```
 
-Returns HTTP 503 if Elasticsearch cannot be reached.
+### Search
 
-### `GET /api/search`
+`GET /api/search`
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `q` | string | empty | Text query; an empty query browses all indexed movies |
+| `q` | string | empty | Text query; empty query browses all indexed documents |
 | `genres` | string | empty | Comma-separated exact genre filters, e.g. `Action,Drama` |
 | `min_rating` / `minRating` | number | none | Minimum `vote_average`, from 0 to 10 |
 | `from` | integer | `0` | Non-negative pagination offset |
 | `size` | integer | `20` | Page size from 1 to 50 |
-
-Examples:
 
 ```bash
 # Browse
@@ -205,104 +234,60 @@ curl -sG \
   "http://localhost:3000/api/search" | jq
 ```
 
-The response shape is:
-
-```json
-{
-  "total": 8,
-  "took_ms": 14,
-  "facets": {
-    "genres": [{ "value": "Action", "count": 5 }],
-    "years": [{ "value": 2020, "count": 3 }]
-  },
-  "items": [
-    {
-      "id": "Spider-Man TMDB ID",
-      "tmdb_id": "Spider-Man TMDB ID",
-      "score": 12.3,
-      "title": "Spider-Man",
-      "overview": "...",
-      "genres": ["Action", "Adventure"],
-      "highlight": { "title": ["<mark>Spider-Man</mark>"] }
-    }
-  ]
-}
-```
-
-Values above are illustrative only. Actual results and relevance scores depend on the indexed dataset.
-
 ### Query semantics
 
-- Ordinary terms use `simple_query_string` with the default operator `OR` for broad recall.
-- Queries containing a negative term such as `-Homecoming` switch the default operator to `AND`, keeping the positive search clause mandatory. For example, `"Spider-Man" -Homecoming` should return Spider-Man results while excluding Homecoming matches, rather than broadening to unrelated documents.
-- Explicit syntax includes phrases, required terms (`+`), excluded terms (`-`), wildcard prefixes, fuzzy terms and grouping supported by `simple_query_string`.
-- Phrase matching adds a ranking boost; it is not a mandatory condition on its own.
-- Genre and rating filters do not directly contribute to `_score`.
-- Text search is sorted by `_score`, then popularity and TMDB ID. Browse mode uses popularity and TMDB ID for deterministic pagination.
-- Facets contain genre counts and a five-year histogram.
-- Highlights use `<mark>` tags on title and overview/description fields.
+- Ordinary terms use `simple_query_string` with default operator `OR` for broad recall.
+- A query containing an exclusion such as `"Spider-Man" -Homecoming` switches the default operator to `AND`, keeping the positive clause mandatory while excluding matches for the negative term.
+- Supported syntax includes quoted phrases, required terms (`+`), exclusions (`-`), wildcards, fuzzy terms and grouping supported by `simple_query_string`.
+- A separate phrase clause boosts ranking; it is not independently mandatory.
+- Genre and rating filters do not directly contribute to relevance scoring.
+- Text queries sort by score, then popularity and TMDB ID. Browse mode sorts by popularity and TMDB ID.
+- Responses include genre facets, five-year histogram facets, and `<mark>` highlights.
 
-### `GET /api/suggest?q=spi&size=5`
+### Suggestions
 
-Uses the `title.suggest` completion field and fuzzy completion. `size` must be from 1 to 10. A blank query returns `{ "suggestions": [] }`.
+`GET /api/suggest?q=spi&size=5` uses the `title.suggest` completion field with fuzzy completion and duplicate skipping. The size must be between 1 and 10.
 
 ```bash
 curl -s "http://localhost:3000/api/suggest?q=spi" | jq
 ```
 
-Suggestion items include `id`, `title`, `year`, `release_date`, `poster_url`, `poster_path` and `vote_average`.
+### Movie lookup and validation
 
-### `GET /api/movies/:id`
-
-Fetches a movie by the TMDB ID used as the Elasticsearch document ID; returns HTTP 404 when it is not indexed.
+`GET /api/movies/:id` fetches a movie by TMDB ID (404 when it is not indexed). Invalid scalar parameters, pagination values, ratings or suggestion sizes return HTTP 400. Unexpected failures return a generic HTTP 500.
 
 ```bash
 curl -i http://localhost:3000/api/movies/634649
-```
-
-### Validation and errors
-
-Invalid query parameters return HTTP 400. Try:
-
-```bash
 curl -i "http://localhost:3000/api/search?from=-1"
 curl -i "http://localhost:3000/api/search?size=51"
 curl -i "http://localhost:3000/api/search?min_rating=11"
-curl -i "http://localhost:3000/api/suggest?q=spi&size=11"
 ```
-
-Malformed Elasticsearch query syntax returns a stable empty search response; unexpected server failures return a generic HTTP 500 response.
 
 ## Shared fixtures and parity checks
 
-The shared behavior scenarios live in `contracts/search-cases.json` and are intended for use by both `poc-elastic` and `ror-elastic`. Compare matching document IDs, filters, excluded terms and expected ordering—not exact Elasticsearch `_score` numbers.
+The shared scenarios live in `contracts/search-cases.json` and are intended for both `poc-elastic` and `ror-elastic`. They cover plain queries, phrases, required and excluded terms, wildcard/fuzzy queries, filters, browsing, suggestions and accent folding.
 
-Current Rails tests cover request validation, pagination bounds, rating limits, scalar parameters, OR/AND selection, phrase boosts, and deterministic sorting:
+Run local verification with:
 
 ```bash
-make test
+make verify
+make api-smoke
 ```
+
+`api-smoke` requires the backend to be running; meaningful result checks also require a populated index. Compare matching TMDB document IDs, filter correctness, exclusions and expected relative ordering—not exact `_score` values.
 
 ## Troubleshooting
 
-- **No results:** confirm `make sync` or `make sync-reset` completed and that the `movies` index exists.
-- **TMDB authentication fails:** verify `TMDB_API_KEY` in `backend/.env`; both v3 keys and v4 Bearer tokens are supported.
+- **Ruby version missing:** run `make ruby-check` and install the version from `backend/.ruby-version` (with rbenv, use `rbenv install "$(cat backend/.ruby-version)"`).
+- **Ruby version installed, gems missing:** run `make setup-backend` or rerun `make setup`; installation of Ruby and installation of Bundler gems are separate steps.
+- **TMDB authentication fails:** check `TMDB_API_KEY` in `backend/.env`.
 - **Elasticsearch unavailable:** run `make up`, inspect `make logs`, and verify `ELASTICSEARCH_URL`.
-- **Mapping changed:** recreate and repopulate the index with `make sync-reset CONFIRM_RESET=1`; this operation is destructive to the configured Elasticsearch index.
+- **No search results:** confirm ingestion succeeded and the `movies` index exists with `make index-info`.
+- **Mapping changed:** run the guarded reset and reingest data; this deletes the existing configured index.
 
-## Frontend structure
+## Frontend
 
-The Nuxt 4 app uses the `frontend/app/` source directory:
-
-```text
-frontend/app/
-├── components/
-│   ├── movie/
-│   └── search/
-├── composables/
-├── pages/
-└── assets/
-```
+The Nuxt 4 app uses the `frontend/app/` source directory. It includes debounced search, autocomplete suggestions, filters, highlighted results and pagination. Start it with `make frontend` and open http://localhost:3001.
 
 ## License
 
