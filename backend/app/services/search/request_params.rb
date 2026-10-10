@@ -1,6 +1,7 @@
 module Search
   class RequestParams
     class InvalidParameter < StandardError; end
+    MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
     def initialize(params)
       @params = params
@@ -46,8 +47,8 @@ module Search
       end
 
       parsed = Integer(value, 10)
-      if parsed < min || (max && parsed > max)
-        upper = max || 'the safe integer limit'
+      upper = max || MAX_SAFE_INTEGER
+      if parsed < min || parsed > upper
         raise InvalidParameter, %("#{key}" must be between #{min} and #{upper})
       end
 
