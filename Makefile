@@ -67,8 +67,17 @@ kibana: ## Open Kibana in the browser (macOS)
 
 install: install-backend install-frontend ## Install backend and frontend dependencies
 
-install-backend: ## Install Rails gem dependencies (Ruby version must be installed)
+install-backend: ruby-check ## Install Rails gem dependencies
 	cd backend && bundle install
+
+install-ingestion: install-backend ## Rails ingestion dependencies are part of the backend bundle
+
+ruby-check: ## Check the Ruby version required by backend/.ruby-version
+	@required="$(cat backend/.ruby-version)"; actual="$(cd backend && ruby -e 'print RUBY_VERSION' 2>/dev/null || true)"; \
+	if [ "$actual" != "$required" ]; then \
+		echo "Ruby $required is required (active version: ${actual:-not available})." >&2; \
+		echo "With rbenv, run: rbenv install $required" >&2; exit 1; \
+	fi
 
 install-frontend: ## Install Nuxt dependencies
 	cd frontend && pnpm install
