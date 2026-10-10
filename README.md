@@ -53,7 +53,7 @@ The Nuxt frontend calls the Rails API over HTTP. The API translates request para
 ## Prerequisites
 
 - Ruby version pinned in `backend/.ruby-version` (currently Ruby 3.4.5) and Bundler
-- Node.js 22+ and PNPM 10+
+- Node.js 22+ and pnpm 11.21.0 (the version used for validation)
 - Docker and Docker Compose
 - A TMDB v3 API key or v4 Read Access Token
 - `curl`; `jq` is optional for formatted terminal output
@@ -101,7 +101,7 @@ This checks the Ruby version, creates any missing environment file, starts Elast
 | Elasticsearch | http://localhost:9200 |
 | Kibana | http://localhost:5601 |
 | Rails API | http://localhost:3000 |
-| Nuxt frontend | http://localhost:3001 |
+| Nuxt frontend | http://localhost:3001 (override with `FRONTEND_PORT`) |
 
 Check Elasticsearch:
 
@@ -188,7 +188,7 @@ Run `make help` to list targets. The command names intentionally match the Node 
 | `make index-info` | Inspect the configured Elasticsearch index |
 | `make api-smoke` | Check health, browse search and suggestions |
 
-`ES_URL`, `API_URL`, and `INDEX` can override defaults for local helper commands. The Rails application uses `ELASTICSEARCH_URL` and `ELASTICSEARCH_INDEX` for its client and index name.
+`ES_PORT`, `KIBANA_PORT`, `ES_HEAP_SIZE`, `ES_MEM_LIMIT`, `API_PORT`, `FRONTEND_PORT`, `ES_URL`, `API_URL`, and `INDEX` can override defaults. The application uses `ELASTICSEARCH_URL` and `ELASTICSEARCH_INDEX` for its client and index name. The Nuxt frontend accepts `NUXT_PUBLIC_API_BASE` through its runtime configuration.
 
 ## Ingestion and index mapping
 
@@ -198,7 +198,7 @@ The Rails database stores genre names as JSON text in the existing `genres` colu
 
 ## Search API contract
 
-The Rails API listens on port 3000 and preserves the `items`, `facets`, and `took_ms` response fields consumed by the existing Nuxt frontend. The Node POC returns `hits`; cross-POC parity should be evaluated by matching document IDs, filters, query semantics, and expected ordering rather than forcing the same response envelope or equal Elasticsearch `_score` values.
+The Rails API listens on port 3000 by default and preserves the `items`, `facets`, and `took_ms` response fields consumed by the existing Nuxt frontend. The Node POC returns `hits`; cross-POC parity should be evaluated by matching document IDs, filters, query semantics, and expected ordering rather than forcing the same response envelope or equal Elasticsearch `_score` values.
 
 ### Health
 
@@ -240,6 +240,7 @@ curl -sG \
 
 - Ordinary terms use `simple_query_string` with default operator `OR` for broad recall.
 - A query containing an exclusion such as `"Spider-Man" -Homecoming` switches the default operator to `AND`, keeping the positive clause mandatory while excluding matches for the negative term.
+- When Elasticsearch raises a `BadRequest` while executing a search query, the API returns HTTP 200 with an empty `items` payload to support incomplete queries while typing. Invalid HTTP parameters are still HTTP 400. An incomplete expression does not necessarily trigger an Elasticsearch error; live contract cases check the actual result.
 - Supported syntax includes quoted phrases, required terms (`+`), exclusions (`-`), wildcards, fuzzy terms and grouping supported by `simple_query_string`.
 - A separate phrase clause boosts ranking; it is not independently mandatory.
 - Genre and rating filters do not directly contribute to relevance scoring.
@@ -265,18 +266,25 @@ curl -i "http://localhost:3000/api/search?size=51"
 curl -i "http://localhost:3000/api/search?min_rating=11"
 ```
 
-## Shared fixtures and parity checks
+## Shared executable contract and parity checks
 
-The shared scenarios live in `contracts/search-cases.json` and are intended for both `poc-elastic` and `ror-elastic`. They cover plain queries, phrases, required and excluded terms, wildcard/fuzzy queries, filters, browsing, suggestions and accent folding.
+`contracts/search-cases.json` is consumed by `scripts/search-contract.mjs`. The runner can recreate a deterministic corpus in the isolated `movies-contract-test` index, call both live APIs, and compare ordered IDs, totals, genre/year facets, filter behavior, suggestions, browse ordering, and malformed-query handling. Exact Elasticsearch `_score` values are not compared.
 
-Run local verification with:
+Run the Node and Rails APIs against the same Elasticsearch instance and contract index, then run the contract script from either repository. The script will only recreate an index whose name ends with `-contract-test`; it refuses to seed the normal `movies` index.
 
 ```bash
-make verify
-make api-smoke
+# One Elasticsearch stack is enough; both APIs use the same index.
+# Terminal 1 (from the Node POC):
+make backend API_PORT=3000 ES_URL=http://localhost:9200 INDEX=movies-contract-test
+# Terminal 2 (from this Rails repository):
+make backend API_PORT=3100 ELASTICSEARCH_URL=http://localhost:9200 ELASTICSEARCH_INDEX=movies-contract-test
+# Terminal 3:
+make contract-smoke CONTRACT_SETUP_INDEX=1 \\
+  ES_URL=http://localhost:9200 CONTRACT_INDEX=movies-contract-test \\
+  NODE_API_URL=http://localhost:3000 RAILS_API_URL=http://localhost:3100
 ```
 
-`api-smoke` requires the backend to be running; meaningful result checks also require a populated index. Compare matching TMDB document IDs, filter correctness, exclusions and expected relative ordering—not exact `_score` values.
+The same runner executes in CI using an isolated Elasticsearch service and fixture corpus. Run `make verify` for the fast Rails tests and Nuxt production build; `make api-smoke` checks only the Rails API.
 
 ## Troubleshooting
 
@@ -291,6 +299,16 @@ make api-smoke
 ## Frontend
 
 The Nuxt 4 app uses the `frontend/app/` source directory. It includes debounced search, autocomplete suggestions, filters, highlighted results and pagination. Start it with `make frontend` and open http://localhost:3001.
+
+## Running both POCs side by side
+
+Each Docker Compose file now supports `ES_PORT`, `KIBANA_PORT`, `ES_HEAP_SIZE`, and `ES_MEM_LIMIT`. If you need both Elasticsearch stacks running concurrently, start one with non-default host ports, for example:
+
+```bash
+ES_PORT=9201 KIBANA_PORT=5602 ES_HEAP_SIZE=1g ES_MEM_LIMIT=2g make up
+```
+
+The API and frontend ports can be changed independently via `API_PORT` and `FRONTEND_PORT`. For cross-POC contract testing, using one Elasticsearch instance with a single shared contract index is more reproducible than keeping two independently ingested indexes.
 
 ## License
 
