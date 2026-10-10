@@ -49,6 +49,8 @@ jobs:
           bundler-cache: true
       - name: Prepare SQLite test database
         working-directory: backend
+        env:
+          RAILS_ENV: test
         run: bin/rails db:prepare
       - name: Run Rails and controller tests
         working-directory: backend
