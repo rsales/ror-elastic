@@ -99,13 +99,13 @@ install-frontend: ## Install Nuxt dependencies
 ingest: sync ## Ingest/update TMDB movies without resetting the index
 
 sync: wait-es ## Rails-native sync command; PAGES overrides TMDB_SYNC_PAGES in .env
-	cd backend && $(if $(PAGES),TMDB_SYNC_PAGES=$(PAGES) )bin/rails runner 'puts Tmdb::SyncMoviesService.new.call.to_json'
+	cd backend && ELASTICSEARCH_URL=$(ELASTICSEARCH_URL) ELASTICSEARCH_INDEX=$(ELASTICSEARCH_INDEX) $(if $(PAGES),TMDB_SYNC_PAGES=$(PAGES) )bin/rails runner 'puts Tmdb::SyncMoviesService.new.call.to_json'
 
 ingest-reset: sync-reset ## Recreate the index and ingest data (requires CONFIRM_RESET=1)
 
 sync-reset: wait-es ## Rails-native reset command (requires CONFIRM_RESET=1)
 	@test "$(CONFIRM_RESET)" = "1" || (echo "Destructive: this recreates the configured Elasticsearch index. Run: make ingest-reset CONFIRM_RESET=1 [PAGES=25]" >&2; exit 1)
-	cd backend && $(if $(PAGES),TMDB_SYNC_PAGES=$(PAGES) )bin/rails runner 'puts Tmdb::SyncMoviesService.new(reset_index: true).call.to_json'
+	cd backend && ELASTICSEARCH_URL=$(ELASTICSEARCH_URL) ELASTICSEARCH_INDEX=$(ELASTICSEARCH_INDEX) $(if $(PAGES),TMDB_SYNC_PAGES=$(PAGES) )bin/rails runner 'puts Tmdb::SyncMoviesService.new(reset_index: true).call.to_json'
 
 test: test-backend ## Run all configured backend tests
 
