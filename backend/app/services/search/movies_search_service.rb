@@ -1,11 +1,11 @@
 module Search
   class MoviesSearchService
     def initialize(query:, genres: [], min_rating: nil, from: 0, size: 20)
-      @query      = query
-      @genres     = genres
+      @query = query.to_s.strip
+      @genres = genres
       @min_rating = min_rating
-      @from       = from
-      @size       = size
+      @from = from
+      @size = size
     end
 
     def call
@@ -18,70 +18,93 @@ module Search
 
     def build_query
       {
-        from:      from,
-        size:      size,
-        query:     build_bool_query,
+        from: from,
+        size: size,
+        track_total_hits: true,
+        query: query.present? ? build_search_query : build_browse_query,
+        sort: sort_config,
         highlight: highlight_config,
-        aggs:      facet_aggs
+        aggs: facet_aggs
       }
     end
 
-    def build_bool_query
-      filter_clauses = build_filters
+    def build_search_query
+      {
+        bool: {
+          must: [full_text_query],
+          should: [phrase_boost_query],
+          filter: build_filters
+        }
+      }
+    end
 
-      if filter_clauses.any?
-        { bool: { must: [full_text_query], filter: filter_clauses } }
-      else
-        full_text_query
-      end
+    def build_browse_query
+      clauses = { must: [{ match_all: {} }] }
+      filters = build_filters
+      clauses[:filter] = filters if filters.any?
+      { bool: clauses }
     end
 
     def full_text_query
-      # query_string suporta todos os operadores de forma confiável:
-      #   "frase exata"          → phrase query
-      #   -excluído              → must_not (funciona mesmo com frases)
-      #   +obrigatório           → must
-      #   termo*                 → wildcard
-      #   termo~2                → fuzzy
-      #   (a OR b)               → agrupamento
-      #
-      # Diferente do simple_query_string, o query_string lida corretamente
-      # com a combinação "phrase" -term sem explodir o minimum_should_match.
-      # lenient: true garante que queries malformadas não retornem erro 400.
-      # analyze_wildcard: true faz term* funcionar com o analyzer correto.
       {
-        query_string: {
-          query:             query,
-          fields:            ['title^10', 'overview^2'],
-          default_operator:  'OR',
-          analyzer:          'standard',
-          lenient:           true,
-          analyze_wildcard:  true
+        simple_query_string: {
+          query: query,
+          fields: ['title^3', 'short_description^2', 'overview^2', 'content^1'],
+          default_operator: default_operator,
+          lenient: true
+        }
+      }
+    end
+
+    def default_operator
+      # Preserve broad OR recall for normal searches. If an exclusion is present,
+      # AND keeps the positive expression mandatory, e.g. '"Spider-Man" -Homecoming'.
+      query.match?(/(^|\s)-\S/) ? 'AND' : 'OR'
+    end
+
+    def phrase_boost_query
+      {
+        multi_match: {
+          query: query,
+          type: 'phrase',
+          fields: ['title^3', 'short_description^2', 'overview^2'],
+          slop: 1,
+          boost: 2
         }
       }
     end
 
     def build_filters
       filters = []
-      filters << { terms: { genres: genres } }                    if genres.any?
-      filters << { range: { vote_average: { gte: min_rating } } } if min_rating
+      filters << { terms: { genres: genres } } if genres.any?
+      filters << { range: { vote_average: { gte: min_rating } } } unless min_rating.nil?
       filters
+    end
+
+    def sort_config
+      if query.present?
+        [{ _score: 'desc' }, { popularity: 'desc' }, { tmdb_id: 'asc' }]
+      else
+        [{ popularity: 'desc' }, { tmdb_id: 'asc' }]
+      end
     end
 
     def highlight_config
       {
-        pre_tags:  ['<mark>'],
+        pre_tags: ['<mark>'],
         post_tags: ['</mark>'],
         fields: {
-          title:    { number_of_fragments: 0 },
-          overview: { number_of_fragments: 2, fragment_size: 200 }
+          title: { number_of_fragments: 0 },
+          short_description: { fragment_size: 150, number_of_fragments: 2 },
+          overview: { fragment_size: 150, number_of_fragments: 2 }
         }
       }
     end
 
     def facet_aggs
       {
-        genres: { terms: { field: 'genres', size: 20 } }
+        genres: { terms: { field: 'genres', size: 15 } },
+        years: { histogram: { field: 'year', interval: 5, min_doc_count: 1 } }
       }
     end
   end
