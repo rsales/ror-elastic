@@ -8,7 +8,9 @@ class Api::SearchControllerTest < ActionDispatch::IntegrationTest
     search_service = Object.new
     search_service.define_singleton_method(:call) { raise error }
 
-    Search::MoviesSearchService.stub(:new, search_service) do
+    service_factory = ->(*_args, **_kwargs) { search_service }
+
+    Search::MoviesSearchService.stub(:new, service_factory) do
       get '/api/search', params: { q: '"Spider-Man' }
     end
 
