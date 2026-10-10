@@ -1,6 +1,8 @@
 class Movie < ApplicationRecord
   include Elasticsearch::Model
 
+  index_name ENV.fetch('ELASTICSEARCH_INDEX', 'movies')
+
   TMDB_POSTER_BASE = 'https://image.tmdb.org/t/p/w342'.freeze
 
   settings index: {
