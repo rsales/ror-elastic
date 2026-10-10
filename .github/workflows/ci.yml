@@ -92,13 +92,13 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@v4
+      - name: Clone Node reference POC
+        run: git clone --depth 1 https://github.com/rsales/poc-elastic.git /tmp/poc-elastic
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: /tmp/poc-elastic/backend/package-lock.json
-      - name: Clone Node reference POC
-        run: git clone --depth 1 https://github.com/rsales/poc-elastic.git /tmp/poc-elastic
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4.5"
