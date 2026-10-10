@@ -1,93 +1,103 @@
 # CLAUDE.md — ror-elastic
 
 ## What this is
-Full-stack movie-search POC: **Ruby on Rails 8 API** + **Elasticsearch 8** + **Nuxt 4 frontend**. Movie data comes from TMDB.
-This is the **Rails implementation** of a search experiment compared against the Node one in [`poc-elastic`](https://github.com/rsales/poc-elastic). Both share behavior scenarios in `contracts/search-cases.json`; each keeps the response envelope its own frontend expects.
+Movie-search POC: **Rails 8.1 API** (Ruby 3.4.5) + **Elasticsearch 8.13** + **Nuxt 4 frontend** (TypeScript), data from TMDB.
+It is the Rails half of a comparison with [`poc-elastic`](https://github.com/rsales/poc-elastic) (Express + Vue). Both must keep the same search behavior; each keeps the response envelope its own frontend expects.
 
-Local POC only: Elasticsearch runs single-node with security disabled. Never expose it publicly.
+Local POC only: ES runs single-node with security disabled. Never expose it publicly.
 
 ## Layout
 ```
-backend/      Rails 8 API (search + suggest + TMDB sync service), Minitest tests
-              .ruby-version pins Ruby (currently 3.4.5)
-              app/models/movie.rb defines ES mapping and Movie#as_indexed_json
-frontend/     Nuxt 4 app (source in frontend/app/), pnpm
-              pnpm-workspace.yaml allowlists native build scripts
-contracts/    search-cases.json — behavior fixtures shared with poc-elastic
-Makefile      Single entry point for all workflows
-docker-compose.yml   Elasticsearch + Kibana
+backend/                      Rails API-only app (SQLite, Minitest, rubocop-rails-omakase)
+  app/models/movie.rb         ES settings/mapping, as_indexed_json, index_document_by_tmdb_id!
+  app/controllers/api/        health, search, suggest, movies (+ application_controller < ActionController::API)
+  app/services/search/        request_params.rb (validation), movies_search_service.rb (Query DSL), movie_suggest_service.rb
+  app/services/tmdb/          client.rb (HTTParty), sync_movies_service.rb (TMDB -> SQLite -> ES)
+  app/jobs/sync_movies_job.rb Wraps the sync service (queue :default)
+  config/routes.rb            Everything under /api
+  config/initializers/        elasticsearch.rb (client from ELASTICSEARCH_URL), cors.rb (origins '*')
+  test/services/search/       request_params_test.rb, movies_search_service_test.rb
+frontend/app/                 Nuxt 4 srcDir
+  pages/index.vue             Page; wires useSearch() to components
+  composables/useSearch.ts    State, debounced search (300 ms), filters, pagination (PAGE_SIZE 20)
+  components/{movie,search}/  MovieCard/Grid/Highlight; SearchBar/Filters/Header/HelpModal/Pagination/Results
+contracts/search-cases.json   Shared behavior scenarios (prose expectations)
+Makefile, docker-compose.yml
 ```
-There is no separate ingestion project: TMDB sync lives inside the Rails backend.
+Template leftovers exist (Kamal, Solid Queue/Cache/Cable, Dockerfile, `.kamal/`); this POC is run locally only.
 
-## Commands (run from repo root)
+## Commands (from repo root)
 | Task | Command |
 |---|---|
-| Full setup (ruby check, env, infra, gems, deps, DB) | `make setup` |
-| Check active Ruby vs `.ruby-version` | `make ruby-check` |
-| Start/stop ES + Kibana | `make up` / `make down` |
-| Ingest/update (keeps index) | `make ingest PAGES=25` (alias `make sync`) |
-| Recreate index + ingest | `make ingest-reset CONFIRM_RESET=1 PAGES=25` (alias `make sync-reset`) |
-| Tests (Rails/Minitest) / Nuxt build / both | `make test` / `make build` / `make verify` |
-| Run API / frontend (separate terminals) | `make backend` / `make frontend` |
-| Health / index inspection / smoke | `make health` / `make index-info` / `make api-smoke` |
+| Setup (ruby check, env, ES, gems, DB, pnpm install) | `make setup` |
+| Check Ruby vs `backend/.ruby-version` | `make ruby-check` |
+| Start/stop ES + Kibana | `make up` / `make down` (volume preserved) |
+| Sync TMDB, keep index | `make ingest PAGES=25` (= `make sync`) |
+| Recreate index + sync | `make ingest-reset CONFIRM_RESET=1 PAGES=25` (= `make sync-reset`) |
+| Backend tests / Nuxt build / both | `make test` / `make build` / `make verify` |
+| Run API / UI (separate terminals) | `make backend` / `make frontend` |
+| Health / index info / smoke | `make health` / `make index-info` / `make api-smoke` |
 
-`make help` lists everything. `setup-ingestion` is just an alias for installing the backend bundle.
-Helper overrides: `ES_URL`, `API_URL`, `INDEX`.
+`PAGES` is passed to the sync as `TMDB_SYNC_PAGES`. Sync runs via `bin/rails runner 'Tmdb::SyncMoviesService.new.call'`.
+Overrides: `ES_URL`, `API_URL`, `INDEX`. Quality tooling (not part of `make verify`): `bin/rubocop`, `bin/brakeman`, `bin/bundler-audit`, or `bin/ci`.
 
 ## Services
-Elasticsearch `:9200` · Kibana `:5601` · Rails API `:3000` · Nuxt `:3001`
+ES `:9200` · Kibana `:5601` · Rails `:3000` · Nuxt `:3001` (`pnpm dev --port 3001`).
 
 ## Environment
-- `backend/.env` (from `backend/.env.example`): `ELASTICSEARCH_URL` (http://localhost:9200), `ELASTICSEARCH_INDEX` (movies), `TMDB_SYNC_PAGES` (25), `TMDB_API_KEY` (v3 key or v4 Read Access Token)
-- `make setup-env` creates it only if missing. **Never commit `.env` files or credentials.**
-- Requires Ruby per `backend/.ruby-version` + Bundler, Node 22+, pnpm, Docker/Compose.
-- Installing Ruby (e.g. `rbenv install "$(cat backend/.ruby-version)"`) does not install gems; `make setup-backend` runs `bundle install`.
+- `backend/.env` (from `.env.example`, gitignored): `TMDB_API_KEY` (v3 key, or v4 token starting with `eyJ`), `ELASTICSEARCH_URL`, `ELASTICSEARCH_INDEX=movies`, `TMDB_SYNC_PAGES=25`
+- Frontend API base: `runtimeConfig.public.apiBase` in `nuxt.config.ts` = `http://localhost:3000/api` (override with `NUXT_PUBLIC_API_BASE`)
+- Needs Ruby per `.ruby-version` + Bundler, Docker/Compose, Node 22+, pnpm. Never commit `.env` or credentials.
 
-## API (Rails, port 3000, under `/api`)
-- `GET /api/health` — 200 if ES reachable, else 503
-- `GET /api/search` — `q`, `genres` (comma-separated, exact), `min_rating` or `minRating` (0–10), `from` (>=0, default 0), `size` (1–50, default 20). Response: `items`, `facets`, `took_ms`
-- `GET /api/suggest?q=&size=` — completion on `title.suggest`, fuzzy, skip duplicates; size 1–10
-- `GET /api/movies/:id` — by TMDB ID; 404 if not indexed
-- Invalid params -> 400; unexpected errors -> generic 500.
+## API (Rails, `/api`)
+- `GET /api/health` — 200 `{status:'ok', es}` or 503 `{status:'degraded'}`
+- `GET /api/search` — `q`, `genres` (comma list), `min_rating` or `minRating` (0–10), `from` (>=0), `size` (1–50, default 20). Returns `{ total, took_ms, facets: { genres[], years[] }, items[] }`; hits are serialized explicitly in `SearchController#serialize_hit`
+- `GET /api/suggest?q=&size=` — `{ suggestions: [...] }`, size 1–10 (default 5)
+- `GET /api/movies/:id` — read straight from ES by TMDB ID; 404 `{error:'not found'}`
+- `RequestParams::InvalidParameter` -> 400; ES `BadRequest` on search -> **200 with an empty result** (typing incomplete syntax); anything else -> 500 `{error:'internal server error'}`
 
-## Search semantics (keep stable; parity depends on them)
-- `simple_query_string`, default operator `OR` (recall). A query with an exclusion (`"Spider-Man" -Homecoming`) switches to `AND`.
-- Supports phrases, `+` required, `-` excluded, wildcards, fuzzy, grouping.
-- A separate phrase clause **boosts** ranking; it is not mandatory.
-- Genre/rating filters do not affect scoring.
-- Sort: text query = score, popularity, TMDB ID; browse (empty `q`) = popularity, TMDB ID.
-- Response includes genre facets, 5-year histogram facets, `<mark>` highlights.
+## Search semantics (shared contract — keep in sync with poc-elastic)
+- `bool.must` = `simple_query_string` over `title^3, short_description^2, overview^2, content^1`, `lenient: true`; empty `q` = `match_all`.
+- Default operator `OR`; `AND` when the query matches `/(^|\s)-\S/`.
+- `bool.should` = phrase `multi_match` (slop 1, boost 2) — ranking boost only.
+- Filters (`terms` on `genres`, `range` on `vote_average`) are in `bool.filter`.
+- Sort: text = `_score desc, popularity desc, tmdb_id asc`; browse = `popularity desc, tmdb_id asc`.
+- Aggs: `genres` (terms, size 15), `years` (histogram, interval 5). Highlight uses `<mark>`.
+- Suggest: completion on `title.suggest`, `skip_duplicates`, fuzziness `AUTO`.
 
 ## Index and ingestion
-- Index `movies`; TMDB ID is the ES `_id` (re-syncing updates the same doc).
-- Fields: `tmdb_id, title, original_title, short_description, overview, content, genres, year, release_date, original_language, popularity, vote_average, poster_url, poster_path, backdrop_path`.
-- The Rails DB stores `genres` as JSON text; `Movie#as_indexed_json` exposes it to ES as an array.
-- The sync service maps TMDB genre IDs to names, indexes, refreshes the index, and reports successful ops plus the final unique doc count.
-- **Mapping changes require recreating the index** (`make ingest-reset CONFIRM_RESET=1`).
+- `Movie` (`elasticsearch-model`) defines the mapping with `dynamic: false`; same `english_analyzer` and fields as poc-elastic. Index name from `ELASTICSEARCH_INDEX`.
+- `as_indexed_json` builds the ES document. `genres` is stored in SQLite as JSON text and exposed as an array; legacy comma-separated values are tolerated.
+- ES `_id` is the **TMDB ID**, never the ActiveRecord primary key: always index through `index_document_by_tmdb_id!`.
+- `Tmdb::SyncMoviesService` (pages 1–500): maps genre IDs -> names, `find_or_initialize_by(tmdb_id)` + `update!`, indexes each movie, refreshes, counts. Per-movie failures are collected; the service raises `SyncFailed` at the end if any failed.
+- Index is created only if missing. **Mapping changes need `make ingest-reset CONFIRM_RESET=1`.**
 
-## Rules for working in this repo
-- `ingest-reset` deletes the index — only run when explicitly intended; it needs `CONFIRM_RESET=1`.
-- Don't change the response envelope (`items`) to match Node (`hits`) — the Nuxt frontend depends on it. Parity is checked by document IDs, filter correctness, exclusions and relative ordering, **not** exact `_score`.
-- Behavior changes should update `contracts/search-cases.json` and stay compatible with `poc-elastic`.
-- Keep Makefile target names aligned with `poc-elastic` where purposes overlap.
-- Frontend uses pnpm with a build-script allowlist (`@parcel/watcher`, `esbuild`, `sharp`, `vue-demi`). Review `frontend/pnpm-workspace.yaml` when direct frontend dependencies change; don't bypass the check.
-- Verify with `make verify`; `make api-smoke` needs the backend running and a populated index.
+## Rules for working here
+- `ingest-reset` deletes the ES index and needs `CONFIRM_RESET=1`. Never run it unprompted.
+- Keep the `items` envelope and `min_rating`/`minRating` aliases; the Nuxt UI and shared contract depend on them. Parity with Node is judged on matching document IDs, filters, exclusions and relative ordering — not `_score`.
+- Query-semantics changes go in `MoviesSearchService`, must be mirrored in `poc-elastic`, and reflected in `contracts/search-cases.json`.
+- Add param validation in `Search::RequestParams` (raise `InvalidParameter`); keep controllers thin and logic in services.
+- Style: rubocop-rails-omakase. Keep Makefile target names aligned with poc-elastic.
+- Frontend: Composition API with `<script setup lang="ts">`; shared state lives in `useSearch.ts`.
 
-## Troubleshooting
-- Ruby version missing -> `make ruby-check`, install per `.ruby-version`
-- Gems missing -> `make setup-backend`
-- TMDB auth error -> check `TMDB_API_KEY` in `backend/.env`
-- `ERR_PNPM_IGNORED_BUILDS` -> confirm `frontend/pnpm-workspace.yaml` exists, rerun `make setup-frontend`
-- ES unavailable -> `make up`, `make logs`, check `ELASTICSEARCH_URL`
-- No results -> confirm ingestion ran, `make index-info`
+## Gotchas
+- Tests are unit-level (param parsing and the generated query/sort); nothing hits Elasticsearch, no controller/sync/frontend tests. `contracts/search-cases.json` is not executed. GitHub CI only runs brakeman, bundler-audit and rubocop — **not** `bin/rails test`.
+- Sync is slower than the Node bulk path: one SQLite write and one ES index request per movie.
+- Frontend: `@nuxt/ui` and Tailwind v4 are installed, but the components use scoped custom CSS and no `U*` components. The UI is in Portuguese; the Node UI is in English. `useSearch.ts` types and renders only the genre facet (`years` is returned but unused). Autocomplete in `SearchBar.vue` calls `/suggest` directly after 2+ characters.
+- `frontend/pnpm-workspace.yaml` allowlists build scripts (`@parcel/watcher`, `esbuild`, `sharp`, `vue-demi`) via `allowBuilds` (pnpm 11 style). The README lists both "PNPM 10+" and "pnpm 11" — check which you have if you see `ERR_PNPM_IGNORED_BUILDS`.
+- CORS is open (`origins '*'`) — fine locally, not for deployment.
+- poc-elastic's compose uses the same host ports (9200, 5601) and its API also uses 3000, so both stacks cannot run at the same time.
+- `frontend/README.md` and `backend/README.md` are template boilerplate (the former says dev port 3000; the real one is 3001).
 
 ## Differences vs poc-elastic
 | | ror-elastic | poc-elastic |
 |---|---|---|
-| Backend | Rails 8 | Express |
-| Frontend | Nuxt 4 (:3001) | Vue 3 + Vite (:5173) |
-| Ingestion | Rails TMDB sync service | separate Node script |
-| Routes | `/api/search`, `/api/suggest`, `/api/health` | `/search`, `/suggest`, `/health` |
+| Backend | Rails 8.1 (API-only) | Express 4 |
+| Frontend | Nuxt 4, TypeScript (:3001) | Vue 3 + Vite, JS (:5173) |
+| Ingestion | Rails service, SQLite + per-record ES index | Node script, ES bulk |
+| Routes | `/api/search`, `/api/suggest`, `/api/health`, `/api/movies/:id` | same without `/api` |
 | Result key | `items` | `hits` |
 | Min rating param | `min_rating` (also `minRating`) | `minRating` |
 | Mapping defined in | `Movie` model | `mappings/movies.json` |
+| Malformed query | ES 400 returns an empty 200 response | ES error likely surfaces as 500 (by code reading) |
+| ES heap | 1 GB | 2 GB |
