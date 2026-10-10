@@ -4,7 +4,7 @@ A full-stack movie-search proof of concept built with **Ruby on Rails 8**, **Ela
 
 ## Capabilities
 
-- TMDB ingestion and bulk-search document modeling
+- TMDB ingestion and Elasticsearch document mapping
 - English analyzer with stemming and accent folding
 - Full-text search with field boosts and phrase boosting
 - Quoted phrases, required/excluded terms, wildcard and fuzzy syntax
@@ -120,7 +120,7 @@ To ingest or update records without deleting the index:
 make sync PAGES=25
 ```
 
-The sync service maps TMDB genre IDs to genre names, writes the shared search fields, bulk-like indexes records one at a time, refreshes Elasticsearch, and reports both successful indexing operations and the final document count. It uses the TMDB ID as the Elasticsearch document ID, so duplicate IDs from different TMDB pages update the same indexed document.
+The sync service maps TMDB genre IDs to genre names, writes the shared search fields, indexes each document with the TMDB ID as its Elasticsearch document ID, refreshes Elasticsearch, and reports both successful indexing operations and the final document count. It uses the TMDB ID as the Elasticsearch document ID, so duplicate IDs from different TMDB pages update the same indexed document.
 
 The Rails database stores genre names as JSON text in the existing `genres` column; `Movie#as_indexed_json` exposes them to Elasticsearch as a JSON array. If mapping fields change, use `make sync-reset CONFIRM_RESET=1` to recreate the index and re-index documents.
 
