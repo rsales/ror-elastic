@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-PAGES ?= 25
+PAGES ?=
 ES_URL ?= http://localhost:9200
 API_URL ?= http://localhost:3000
 INDEX ?= movies
@@ -55,13 +55,13 @@ install-frontend: ## Install Nuxt frontend dependencies
 ingest: sync ## Ingest/update TMDB movies without deleting the index (alias for sync)
 
 sync: wait-es ## Rails-native alias for ingest
-	cd backend && TMDB_SYNC_PAGES=$(PAGES) bin/rails runner 'Tmdb::SyncMoviesService.new.call'
+	cd backend && $(if $(PAGES),TMDB_SYNC_PAGES=$(PAGES) )bin/rails runner 'Tmdb::SyncMoviesService.new.call'
 
 ingest-reset: sync-reset ## Recreate the index and ingest data (requires CONFIRM_RESET=1)
 
 sync-reset: wait-es ## Rails-native reset command (requires CONFIRM_RESET=1)
 	@test "$(CONFIRM_RESET)" = "1" || (echo "Destructive: this recreates the configured Elasticsearch index. Run: make ingest-reset CONFIRM_RESET=1 PAGES=$(PAGES)" >&2; exit 1)
-	cd backend && TMDB_SYNC_PAGES=$(PAGES) bin/rails runner 'Tmdb::SyncMoviesService.new(reset_index: true).call'
+	cd backend && $(if $(PAGES),TMDB_SYNC_PAGES=$(PAGES) )bin/rails runner 'Tmdb::SyncMoviesService.new(reset_index: true).call'
 
 test: test-backend ## Run all currently configured automated tests
 
