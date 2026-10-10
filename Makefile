@@ -6,9 +6,9 @@ ES_URL ?= http://localhost:9200
 API_URL ?= http://localhost:3000
 INDEX ?= movies
 
-.PHONY: help setup setup-env setup-backend setup-frontend db-setup \
+.PHONY: help setup setup-env setup-backend setup-ingestion setup-frontend db-setup ruby-check \
         up down logs wait-es health elastic kibana \
-        install install-backend install-frontend \
+        install install-backend install-ingestion install-frontend \
         ingest ingest-reset sync sync-reset test test-backend build verify \
         backend frontend index-info api-smoke smoke
 
@@ -30,6 +30,8 @@ setup-backend: ## Install Ruby gems and prepare the Rails database
 	$(MAKE) setup-env
 	$(MAKE) install-backend
 	$(MAKE) db-setup
+
+setup-ingestion: install-ingestion ## Rails TMDB ingestion is provided by the backend service
 
 setup-frontend: ## Install Nuxt dependencies
 	$(MAKE) install-frontend
@@ -73,10 +75,10 @@ install-backend: ruby-check ## Install Rails gem dependencies
 install-ingestion: install-backend ## Rails ingestion dependencies are part of the backend bundle
 
 ruby-check: ## Check the Ruby version required by backend/.ruby-version
-	@required="$(cat backend/.ruby-version)"; actual="$(cd backend && ruby -e 'print RUBY_VERSION' 2>/dev/null || true)"; \
-	if [ "$actual" != "$required" ]; then \
-		echo "Ruby $required is required (active version: ${actual:-not available})." >&2; \
-		echo "With rbenv, run: rbenv install $required" >&2; exit 1; \
+	@required="$$(cat backend/.ruby-version)"; actual="$$(cd backend && ruby -e 'print RUBY_VERSION' 2>/dev/null || true)"; \
+	if [ "$$actual" != "$$required" ]; then \
+		echo "Ruby $$required is required (active version: $$actual)." >&2; \
+		echo "With rbenv, run: rbenv install $$required" >&2; exit 1; \
 	fi
 
 install-frontend: ## Install Nuxt dependencies
