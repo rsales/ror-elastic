@@ -1,7 +1,6 @@
 require "test_helper"
 
 class Api::SearchControllerTest < ActionDispatch::IntegrationTest
-
   test "the Elasticsearch serializer parses JSON with the installed JSON gem" do
     payload = Elasticsearch::API.serializer.load('{"status":"ok"}')
 
