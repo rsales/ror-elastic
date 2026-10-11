@@ -1,6 +1,12 @@
 require "test_helper"
 
 class Api::SearchControllerTest < ActionDispatch::IntegrationTest
+
+  test "the Elasticsearch serializer parses JSON with the installed JSON gem" do
+    payload = Elasticsearch::API.serializer.load('{"status":"ok"}')
+
+    assert_equal({ "status" => "ok" }, payload)
+  end
   test "normalizes Elasticsearch BadRequest to an empty successful search response" do
     error_class = Elastic::Transport::Transport::Errors::BadRequest
     error = error_class.new("invalid search query")
