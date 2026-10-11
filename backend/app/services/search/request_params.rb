@@ -69,7 +69,7 @@ module Search
     end
 
     def parse_genres(value)
-      value.to_s.split(',').map(&:strip).reject(&:blank?)
+      value.to_s.split(",").map(&:strip).reject(&:blank?)
     end
   end
 end
