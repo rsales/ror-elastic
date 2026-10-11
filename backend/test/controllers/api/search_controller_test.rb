@@ -7,6 +7,7 @@ class Api::SearchControllerTest < ActionDispatch::IntegrationTest
 
     assert_equal({ "status" => "ok" }, payload)
   end
+
   test "normalizes Elasticsearch BadRequest to an empty successful search response" do
     error_class = Elastic::Transport::Transport::Errors::BadRequest
     error = error_class.new("invalid search query")
