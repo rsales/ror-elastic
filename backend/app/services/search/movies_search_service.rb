@@ -31,15 +31,15 @@ module Search
     def build_search_query
       {
         bool: {
-          must: [full_text_query],
-          should: [phrase_boost_query],
+          must: [ full_text_query ],
+          should: [ phrase_boost_query ],
           filter: build_filters
         }
       }
     end
 
     def build_browse_query
-      clauses = { must: [{ match_all: {} }] }
+      clauses = { must: [ { match_all: {} } ] }
       filters = build_filters
       clauses[:filter] = filters if filters.any?
       { bool: clauses }
@@ -49,7 +49,7 @@ module Search
       {
         simple_query_string: {
           query: query,
-          fields: ['title^3', 'short_description^2', 'overview^2', 'content^1'],
+          fields: [ "title^3", "short_description^2", "overview^2", "content^1" ],
           default_operator: default_operator,
           lenient: true
         }
@@ -59,15 +59,15 @@ module Search
     def default_operator
       # Preserve broad OR recall for normal searches. If an exclusion is present,
       # AND keeps the positive expression mandatory, e.g. '"Spider-Man" -Homecoming'.
-      query.match?(/(^|\s)-\S/) ? 'AND' : 'OR'
+      query.match?(/(^|\s)-\S/) ? "AND" : "OR"
     end
 
     def phrase_boost_query
       {
         multi_match: {
           query: query,
-          type: 'phrase',
-          fields: ['title^3', 'short_description^2', 'overview^2'],
+          type: "phrase",
+          fields: [ "title^3", "short_description^2", "overview^2" ],
           slop: 1,
           boost: 2
         }
@@ -83,16 +83,16 @@ module Search
 
     def sort_config
       if query.present?
-        [{ _score: 'desc' }, { popularity: 'desc' }, { tmdb_id: 'asc' }]
+        [ { _score: "desc" }, { popularity: "desc" }, { tmdb_id: "asc" } ]
       else
-        [{ popularity: 'desc' }, { tmdb_id: 'asc' }]
+        [ { popularity: "desc" }, { tmdb_id: "asc" } ]
       end
     end
 
     def highlight_config
       {
-        pre_tags: ['<mark>'],
-        post_tags: ['</mark>'],
+        pre_tags: [ "<mark>" ],
+        post_tags: [ "</mark>" ],
         fields: {
           title: { number_of_fragments: 0 },
           short_description: { fragment_size: 150, number_of_fragments: 2 },
@@ -103,8 +103,8 @@ module Search
 
     def facet_aggs
       {
-        genres: { terms: { field: 'genres', size: 15 } },
-        years: { histogram: { field: 'year', interval: 5, min_doc_count: 1 } }
+        genres: { terms: { field: "genres", size: 15 } },
+        years: { histogram: { field: "year", interval: 5, min_doc_count: 1 } }
       }
     end
   end

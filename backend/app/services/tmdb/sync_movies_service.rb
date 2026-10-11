@@ -6,7 +6,7 @@ module Tmdb
     class SyncFailed < StandardError; end
 
     def initialize(pages: nil, reset_index: false, client: Tmdb::Client.new)
-      @pages = parse_pages(pages || ENV.fetch('TMDB_SYNC_PAGES', DEFAULT_PAGES.to_s))
+      @pages = parse_pages(pages || ENV.fetch("TMDB_SYNC_PAGES", DEFAULT_PAGES.to_s))
       @reset_index = reset_index
       @client = client
       @failures = []
@@ -15,13 +15,13 @@ module Tmdb
 
     def call
       prepare_index!
-      genre_map = @client.movie_genres.index_by { |genre| genre['id'].to_i }
-                      .transform_values { |genre| genre['name'] }
+      genre_map = @client.movie_genres.index_by { |genre| genre["id"].to_i }
+                      .transform_values { |genre| genre["name"] }
 
       (1..@pages).each { |page| sync_page(page, genre_map) }
 
       Movie.__elasticsearch__.client.indices.refresh(index: Movie.index_name)
-      document_count = Movie.__elasticsearch__.client.count(index: Movie.index_name).fetch('count')
+      document_count = Movie.__elasticsearch__.client.count(index: Movie.index_name).fetch("count")
 
       Rails.logger.info(
         "[TMDB sync] pages=#{@pages} indexed_operations=#{@indexed_operations} " \
@@ -65,7 +65,7 @@ module Tmdb
 
     def sync_page(page, genre_map)
       response = @client.popular_movies(page: page)
-      movies = response.fetch('results', [])
+      movies = response.fetch("results", [])
       Rails.logger.info("[TMDB sync] page=#{page}/#{@pages} records=#{movies.size}")
 
       movies.each do |movie_data|
@@ -74,20 +74,20 @@ module Tmdb
     end
 
     def index_movie(movie_data, genre_map)
-      tmdb_id = movie_data['id']
-      genre_names = Array(movie_data['genre_ids']).filter_map { |id| genre_map[id.to_i] }
+      tmdb_id = movie_data["id"]
+      genre_names = Array(movie_data["genre_ids"]).filter_map { |id| genre_map[id.to_i] }
 
       movie = Movie.find_or_initialize_by(tmdb_id: tmdb_id)
       movie.update!(
-        title: movie_data['title'],
-        original_title: movie_data['original_title'],
-        overview: movie_data['overview'],
-        release_date: movie_data['release_date'].presence,
-        popularity: movie_data['popularity'],
-        vote_average: movie_data['vote_average'],
-        original_language: movie_data['original_language'],
-        poster_path: movie_data['poster_path'],
-        backdrop_path: movie_data['backdrop_path'],
+        title: movie_data["title"],
+        original_title: movie_data["original_title"],
+        overview: movie_data["overview"],
+        release_date: movie_data["release_date"].presence,
+        popularity: movie_data["popularity"],
+        vote_average: movie_data["vote_average"],
+        original_language: movie_data["original_language"],
+        poster_path: movie_data["poster_path"],
+        backdrop_path: movie_data["backdrop_path"],
         genres: genre_names.to_json
       )
 
