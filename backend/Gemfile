@@ -38,6 +38,9 @@ gem "elasticsearch-model"
 # Use the Elasticsearch Rails integration for Active Record models and controllers
 gem "elasticsearch-rails"
 
+# Elasticsearch Ruby 8.x uses MultiJson; 1.21.2 adapts to JSON 3 keyword options.
+gem "multi_json", ">= 1.21.2"
+
 # Use Kaminari for pagination [https://github.com/kaminari/kaminari]
 gem "kaminari"
 
