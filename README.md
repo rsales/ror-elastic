@@ -280,7 +280,7 @@ make backend API_PORT=3000 ES_URL=http://localhost:9200 INDEX=movies-contract-te
 make backend API_PORT=3100 ELASTICSEARCH_URL=http://localhost:9200 ELASTICSEARCH_INDEX=movies-contract-test
 # Terminal 3:
 make contract-smoke CONTRACT_SETUP_INDEX=1 \
-  ES_URL=http://localhost:9200 CONTRACT_INDEX=movies-contract-test \\
+  ES_URL=http://localhost:9200 CONTRACT_INDEX=movies-contract-test \
   NODE_API_URL=http://localhost:3000 RAILS_API_URL=http://localhost:3100
 ```
 
@@ -292,6 +292,7 @@ The same runner executes in CI using an isolated Elasticsearch service and fixtu
 - **Ruby version installed, gems missing:** run `make setup-backend` or rerun `make setup`; installation of Ruby and installation of Bundler gems are separate steps.
 - **TMDB authentication fails:** check `TMDB_API_KEY` in `backend/.env`.
 - **Frontend install reports `ERR_PNPM_IGNORED_BUILDS`:** confirm `frontend/pnpm-workspace.yaml` is present on your branch, then rerun `make setup-frontend`. The project explicitly allows only the listed dependency build scripts.
+- **Elasticsearch health returns 503 with `ArgumentError` in JSON parsing:** run `make setup-backend` or `cd backend && bundle install`. The Rails Elasticsearch client requires `multi_json` 1.21.2 or later to work with JSON 3.x; this is constrained in the Gemfile and lockfile.
 - **Elasticsearch unavailable:** run `make up`, inspect `make logs`, and verify `ELASTICSEARCH_URL`.
 - **No search results:** confirm ingestion succeeded and the `movies` index exists with `make index-info`.
 - **Mapping changed:** run the guarded reset and reingest data; this deletes the existing configured index.
